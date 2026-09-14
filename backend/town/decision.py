@@ -15,7 +15,7 @@ LIFE_PLAN_SYSTEM = """你负责为角色形成一段连续生活计划，不逐t
 steps必须有1至6项，并按真实执行顺序排列。普通生活不需要列多个候选。
 interaction_type只能是move, consume, rest, communicate, inspect, request_service, take, put, transfer, use_resource, operate, produce, work_on_goal, wait。
 move必须填写known_locations中的location ID。work_on_goal必须填写当前有效goal_id与progress_delta。环境操作必须引用上下文中可见的结构化ID：要去别处操作设施时，用那个地点facilities里的真实ID，不要自己编造。
-request_service只能在当前位置、完成inspect后请求可见服务台提供的真实商品；成功后商品进入背包，随后才能consume。
+request_service只能请求已经看过的服务台：同一份计划里必须先有一步inspect同地点，否则这一步到了店里也会被拒绝；走进店里不算看过。成功后商品进入背包，随后才能consume。
 计划要有连续性：准备、移动和到达后的活动应是不同步骤。不要用等待、观察、休息填充时间；只有角色确实在等待某个条件、需要观察未知信息或需要恢复时才能安排。
 content不得包含ID、括号假设或系统校验说明。不要补写上下文没有的事实。
 若上下文给出rejected_steps，说明那些步骤引用了世界上不存在的ID；必须改用上下文中真实存在的ID重写，没有合适ID就不要安排该步骤。"""
@@ -155,6 +155,7 @@ blocks必须是1至6个不重叠的时间区块，window使用当天的分钟数
             action["source"] = "life_plan"
             action["supports_goal_ids"] = [str(value) for value in action.get("supports_goal_ids", raw.get("goal_ids", []))]
             problems = engine.interactions.missing_references(action, agent, engine)
+            problems.extend(self._ordering_problems(action, agent, engine, steps))
             if problems:
                 rejected.append({
                     "description": description[:80], "action": action, "problems": problems,
@@ -166,6 +167,38 @@ blocks必须是1至6个不重叠的时间区块，window使用当天的分钟数
                                   for value in item.get("expected_outcome", [])],
             ))
         return steps, rejected
+
+    def _ordering_problems(self, action: dict, agent, engine,
+                           earlier: list[PlanStep]) -> list[dict]:
+        """Steps that fail because an earlier step is missing from the plan.
+
+        Ordering at a counter is only accepted once the agent has really looked
+        at it, and walking in is not looking. A plan that orders without an
+        earlier ``inspect`` of the same place is refused on arrival, taking the
+        whole plan down with it.
+        """
+        kind = str(action.get("interaction_type") or action.get("action") or "")
+        if kind != "request_service":
+            return []
+        location = str(action.get("location") or action.get("location_id")
+                       or agent.state.current_location)
+        resource = engine.resources.get(str(action.get("resource_id", "")))
+        if resource is None:
+            return []
+        if not engine.interactions.service_needs_a_look(agent, location, resource, engine):
+            return []
+        looks_first = any(
+            str(step.action.get("interaction_type") or step.action.get("action") or "") == "inspect"
+            and str(step.action.get("location") or step.action.get("location_id")
+                    or agent.state.current_location) == location
+            for step in earlier
+        )
+        if looks_first:
+            return []
+        return [{
+            "field": "interaction_type", "value": kind,
+            "reason": "尚未观察到可服务工作人员；请先查看店内情况",
+        }]
 
     def _skip_satisfied_steps(self, agent, engine, plan) -> int:
         """Retire travel steps the agent is already standing at.

@@ -729,6 +729,19 @@ class InteractionEngine:
             for person in self._available_service_staff(facility_id, location, engine)
         )
 
+    def service_needs_a_look(self, agent, location: str, resource, engine) -> bool:
+        """True when ordering this item would be refused for lack of a fresh look.
+
+        Ordering at a counter requires having observed its staff within the last
+        30 sim-minutes, and only an explicit ``inspect`` records an observation —
+        walking in does not. Asked at planning time so a step that can only be
+        refused is not written into a plan.
+        """
+        facility_id = self._service_facility_id(resource)
+        if not facility_id:
+            return False        # not counter goods: other reasons decide this step
+        return not self._has_observed_staff(agent, location, facility_id, engine)
+
     def _has_observed_staff(self, agent, location: str, facility_id: str, engine) -> bool:
         observation = getattr(agent, "_last_observation", None)
         if not isinstance(observation, dict) or observation.get("location") != location:

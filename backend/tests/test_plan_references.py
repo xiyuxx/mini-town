@@ -49,6 +49,15 @@ def location_with_process(engine):
     raise AssertionError("the world has no usable process to cite")
 
 
+def counter_item(engine, location):
+    """A real item sold over a counter: one this agent has not looked at yet."""
+    agent = next(item for item in engine.agents if item.id == "wang")
+    for resource in engine.resources.at_location(location):
+        if engine.interactions.service_needs_a_look(agent, location, resource, engine):
+            return resource.id
+    raise AssertionError("no counter goods left to order at " + location)
+
+
 def step(description, action):
     return {"description": description, "action": action, "expected_outcome": []}
 
@@ -168,5 +177,44 @@ def test_a_step_that_never_names_its_process_is_caught_before_it_is_committed(tm
             {"field": "process_id", "value": "", "reason": "过程不存在"},
         ]
         assert [item.action.get("process_id") for item in plan.steps] == [None, real_process]
+
+    run(scenario())
+
+
+def test_ordering_without_looking_first_is_not_committed(tmp_path):
+    """Look before you order: walking in is not looking, so the plan must inspect."""
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        agent = next(item for item in engine.agents if item.id == "wang")
+        item = counter_item(engine, "cafe")
+
+        calls = stub_planner(engine, [
+            plan_payload([
+                step("走到咖啡馆", {"interaction_type": "move", "content": "走到咖啡馆",
+                                    "location": "cafe"}),
+                step("点一份午餐", {"interaction_type": "request_service",
+                                    "content": "点一份午餐", "location": "cafe",
+                                    "resource_id": item}),
+            ]),
+            plan_payload([
+                step("走到咖啡馆", {"interaction_type": "move", "content": "走到咖啡馆",
+                                    "location": "cafe"}),
+                step("看看吧台", {"interaction_type": "inspect", "content": "看看吧台",
+                                  "location": "cafe", "target_id": ""}),
+                step("点一份午餐", {"interaction_type": "request_service",
+                                    "content": "点一份午餐", "location": "cafe",
+                                    "resource_id": item}),
+            ]),
+        ])
+
+        plan = await engine.planner.create_life_plan(agent, engine, {"sim_time": "第1天 09:00"})
+
+        plan_calls = [call for call in calls if call["task"] == "life_plan"]
+        assert len(plan_calls) == 2, "one rewrite should be requested"
+        problems = plan_calls[1]["payload"]["rejected_steps"][0]["problems"]
+        assert [item["reason"] for item in problems] == ["尚未观察到可服务工作人员；请先查看店内情况"]
+        assert [step_.action.get("interaction_type") for step_ in plan.steps] == [
+            "move", "inspect", "request_service",
+        ]
 
     run(scenario())
