@@ -333,6 +333,22 @@ class Agent:
         self.state.status = "IDLE"
         return description
 
+    def cancel_movement(self, reason: str = "") -> str:
+        """Abandon a trip in progress so a new decision can be made.
+
+        Used when something outranks the errand — an appointment whose hour has
+        come — not for committed travel to a duty.
+        """
+        description = self._movement_reason or "路上"
+        self._movement_path = None
+        self._movement_action = None
+        self._movement_reason = ""
+        self._movement_source = ""
+        self._pending_action = None
+        self.state.status = "IDLE"
+        self.state.current_action = reason or f"放弃{description}"
+        return description
+
     def resume_interrupted_activity(self, current_commitment_id: str | None) -> bool:
         interrupted = self._interrupted_activity
         if not interrupted:

@@ -18,9 +18,9 @@ class RoutinePlanner:
         now = engine.get_sim_timestamp()
         self.tasks.project_schedule(agent, engine.day, now)
 
-        need_task = self._urgent_need_task(agent, engine, now)
+        need_task = self.urgent_need_task(agent, engine, now)
         if need_task:
-            return self._task_action(need_task, agent, engine)
+            return self.task_action(need_task, agent, engine)
 
         current_slot = agent._get_schedule_item(engine.hour, engine.minute)
         if current_slot and current_slot.is_flexible_slot:
@@ -32,9 +32,9 @@ class RoutinePlanner:
         if not candidates:
             return None
         task = max(candidates, key=lambda item: self._score(item, agent, engine, now))
-        return self._task_action(task, agent, engine)
+        return self.task_action(task, agent, engine)
 
-    def _urgent_need_task(self, agent, engine, now: int) -> Task | None:
+    def urgent_need_task(self, agent, engine, now: int) -> Task | None:
         needs = agent.state.needs
         location = agent.state.current_location
         if needs.get("hunger", 0) >= 80:
@@ -66,7 +66,7 @@ class RoutinePlanner:
         return score
 
     @staticmethod
-    def _task_action(task: Task, agent, engine) -> dict:
+    def task_action(task: Task, agent, engine) -> dict:
         payload = dict(task.payload)
         commitment = agent.get_current_commitment(engine.day, engine.hour, engine.minute)
         action = {

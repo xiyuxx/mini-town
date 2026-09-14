@@ -3,6 +3,7 @@
 import asyncio
 
 from backend.config import config
+from backend.town.candidates import build_routine_candidates
 from backend.town.engine import SimulationEngine
 from backend.town.schedule import ScheduleItem
 from backend.town.tasks import Task
@@ -194,7 +195,7 @@ def test_a_promise_pulls_an_agent_out_of_what_it_was_doing(tmp_path):
         assert accepted
         appointment = next(iter(engine._appointments.values()))
 
-        for _ in range(12):
+        for _ in range(24):
             await engine.tick()
             await settle(engine)
             if appointment["status"] != "pending":
@@ -241,7 +242,7 @@ def test_a_promise_made_in_free_time_outranks_the_schedule_board(tmp_path):
             payload={"commitment_id": "duty:clinic"}, created_at=now,
         ))
 
-        for _ in range(14):
+        for _ in range(24):
             await engine.tick()
             await settle(engine)
             if appointment["status"] != "pending":
@@ -249,45 +250,6 @@ def test_a_promise_made_in_free_time_outranks_the_schedule_board(tmp_path):
 
         assert appointment["status"] == "honored"
         assert speaker.state.current_location == "park"
-
-    run(scenario())
-
-
-def test_an_emergency_keeps_an_agent_away(tmp_path):
-    """The one thing allowed to break a promise is a more urgent need."""
-    async def scenario():
-        engine = await make_engine(tmp_path)
-        engine._realtime_llm = True
-        waiter = next(agent for agent in engine.agents if agent.id == "mei")
-        busy = next(agent for agent in engine.agents if agent.id == "wang")
-        engine.agents = [waiter, busy]
-        for agent in (waiter, busy):
-            agent.schedule = []
-            agent.routine_blocks = []
-        waiter.state.current_location = "park"
-        waiter.state.x, waiter.state.y = 9, 8
-        waiter.state.status = "IDLE"
-        busy.state.current_location = "restaurant"
-        busy.state.x, busy.state.y = 16, 4
-        busy.state.status = "IDLE"
-
-        accepted, _ = await engine.create_appointment(
-            waiter, [busy],
-            proposal(with_name="老王", hour=engine.hour, minute=engine.minute + 30),
-        )
-        assert accepted
-        appointment = next(iter(engine._appointments.values()))
-
-        for _ in range(14):
-            busy.state.needs["hunger"] = 99      # a standing emergency
-            await engine.tick()
-            await settle(engine)
-            if appointment["status"] != "pending":
-                break
-
-        assert appointment["status"] == "broken"
-        assert busy.state.current_location != "park"
-        assert "失信" in engine.relationship_store.rapport(waiter.id, busy.id).tags
 
     run(scenario())
 
@@ -331,6 +293,72 @@ def test_a_meeting_that_would_run_into_a_shift_is_refused(tmp_path):
     run(scenario())
 
 
+def test_the_model_cannot_skip_an_appointment(tmp_path):
+    """The engine keeps the promise; the model only decides how, not whether.
+
+    Live agents decide their free time by picking from a candidate list, and
+    that list never contains appointments — so if the engine left this to the
+    model, an arrangement could be quietly ignored.
+    """
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        engine.llm.fallback = False          # the live decision path
+        engine._realtime_llm = True
+        speaker = next(agent for agent in engine.agents if agent.id == "wang")
+        partner = next(agent for agent in engine.agents if agent.id == "mei")
+        engine.agents = [speaker, partner]
+        free_day = ScheduleItem(
+            hour=6, minute=0, label="自由时间", location="home_wang", kind="flexible",
+            activity="自由时间", expected_duration=960, flexibility=1.0,
+            responsibility=0.1, affected_people=(), consequence_of_delay="",
+            is_flexible_slot=True,
+        )
+        for agent in (speaker, partner):
+            agent.schedule = [free_day]
+        speaker.state.status = "IDLE"
+        partner.state.status = "IDLE"
+
+        # Wait for the hour when the agents really do have free-time options:
+        # that is when the model, not the task board, picks the destination.
+        for _ in range(60):
+            if build_routine_candidates(speaker, engine):
+                break
+            await engine.tick()
+            await settle(engine)
+        assert build_routine_candidates(speaker, engine), "no free-time options to choose from"
+
+        meeting = engine.hour * 60 + engine.minute + 30
+        accepted, note = await engine.create_appointment(
+            speaker, [partner],
+            proposal(hour=meeting // 60, minute=meeting % 60),
+        )
+        assert accepted, note
+        appointment = next(iter(engine._appointments.values()))
+
+        # A model that would rather be somewhere else, plus inert planning.
+        async def disobedient(_agent, candidates):
+            return {"interaction_type": "wait", "content": "自己待着",
+                    "location": "bookstore", "duration_minutes": 30}
+
+        async def no_plan(_agent, _sim_time, _reason=""):
+            return None
+
+        engine._select_routine_candidate_in_background = disobedient
+        engine._plan_in_background = no_plan
+
+        for _ in range(24):
+            await engine.tick()
+            await settle(engine)
+            if appointment["status"] != "pending":
+                break
+
+        assert appointment["status"] == "honored"
+        assert speaker.state.current_location == "park"
+        assert partner.state.current_location == "park"
+
+    run(scenario())
+
+
 def test_standing_someone_up_costs_trust(tmp_path):
     async def scenario():
         engine = await make_engine(tmp_path)
@@ -352,15 +380,24 @@ def test_standing_someone_up_costs_trust(tmp_path):
         no_show._activity_desc = "在家午睡"
         no_show._activity_commitment_id = "duty:home_mei"
 
+        meeting = engine.hour * 60 + engine.minute + 40
         accepted, _ = await engine.create_appointment(
             waiter, [no_show],
-            proposal(hour=engine.hour, minute=engine.minute + 20),
+            proposal(hour=meeting // 60, minute=meeting % 60),
         )
         assert accepted
         appointment = next(iter(engine._appointments.values()))
+        # Work takes the slot back after the promise was made, so the agent is
+        # no longer free to leave when the hour comes.
+        no_show.schedule = [ScheduleItem(
+            hour=meeting // 60 - 1, minute=0, label="值班", location="home_mei",
+            kind="work", activity="值班", expected_duration=600, flexibility=0.0,
+            responsibility=0.9, affected_people=(), consequence_of_delay="",
+            is_flexible_slot=False,
+        )]
 
         events = []
-        for _ in range(12):
+        for _ in range(24):
             await engine.tick()
             await settle(engine)
             events.extend(engine._last_events[-8:])

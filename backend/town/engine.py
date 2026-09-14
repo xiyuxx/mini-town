@@ -23,7 +23,7 @@ from .town_agent import TownAgent, TownState
 from .tools import ToolRegistry
 from .tools_full import make_registry_for
 from .experience import ExperienceEvent, MemoryFormation
-from .tasks import Task, TaskStore
+from .tasks import OPEN_TASK_STATES, Task, TaskStore
 from .routine_planner import RoutinePlanner
 from .candidates import build_routine_candidates
 from .context import ContextService
@@ -630,10 +630,42 @@ class SimulationEngine:
 
         dialogue_participants = self.dialogue.participant_ids()
         now = self.get_sim_timestamp()
+        # A due promise outranks whatever the model had been deliberating: the
+        # free-time choice it made a few ticks ago is not a reason to stand
+        # somebody up.
+        for agent_id in list(decisions):
+            deliberating = self._find_agent_by_id(agent_id)
+            if deliberating is None:
+                continue
+            if self._due_appointment_task(deliberating, now) is not None:
+                decisions.pop(agent_id)
+                await self.trace.log(
+                    sim_time_str, agent_id, "appointment", "overrode_choice",
+                    "约定时间已到，放弃原计划",
+                )
         for agent in self.agents:
             if agent.id in dialogue_participants or agent.state.status != "IDLE" or agent.id in decisions:
                 continue
             agent.sync_schedule_goals(self.day, self.hour, self.minute)
+            # Promises are not suggestions and an empty stomach is not a
+            # choice: both are settled here, so keeping an arrangement does not
+            # depend on what the model happens to pick out of a candidate list
+            # that never contained it.
+            need_task = self.routine_planner.urgent_need_task(agent, self, now)
+            if need_task is not None:
+                decisions[agent.id] = self.routine_planner.task_action(need_task, agent, self)
+                await self.trace.log(
+                    sim_time_str, agent.id, "routine", "urgent_need",
+                    str(decisions[agent.id])[:200],
+                )
+                continue
+            promised = self._due_appointment_task(agent, now)
+            if promised is not None:
+                decisions[agent.id] = self.routine_planner.task_action(promised, agent, self)
+                await self.trace.log(
+                    sim_time_str, agent.id, "appointment", "due", str(decisions[agent.id])[:200],
+                )
+                continue
             current_slot = agent._get_schedule_item(self.hour, self.minute)
             if current_slot and current_slot.is_flexible_slot and not self.llm.fallback:
                 candidates = build_routine_candidates(agent, self)
@@ -1082,8 +1114,9 @@ class SimulationEngine:
         return self._talk_bonus_cache[pair]
 
     def _in_flexible_slot(self, agent: Agent) -> bool:
+        """Free time: an explicitly flexible slot, or no schedule at all."""
         slot = agent._get_schedule_item(self.hour, self.minute)
-        return bool(slot and slot.is_flexible_slot)
+        return slot is None or bool(slot.is_flexible_slot)
 
     def _register_dialogue_start(self, participant_ids: list[str]) -> None:
         """Charge the day's budget and open the cooldown for everyone involved."""
@@ -1239,6 +1272,35 @@ class SimulationEngine:
                 return f"{minutes // 60:02d}:{minutes % 60:02d}"
         return ""
 
+    def _appointment_window_opens(self, record: dict, agent: Agent) -> int:
+        """When this agent has to set off, given how far the venue is.
+
+        A fixed 20-minute lead is not enough on a 20x14 map: a trip can take
+        most of an hour, and an appointment nobody can reach in time is a
+        promise that was broken the moment it was made.
+        """
+        centre = LOCATION_MAP[record["venue"]].center
+        distance = abs(agent.state.x - centre[0]) + abs(agent.state.y - centre[1])
+        travel_ticks = (distance + config.MOVE_SPEED - 1) // max(1, config.MOVE_SPEED)
+        travel_minutes = travel_ticks * config.TICK_INTERVAL_MINUTES
+        return record["meeting_at"] - max(
+            config.APPOINTMENT_MIN_LEAD_MINUTES, travel_minutes + 10,
+        )
+
+    def _due_appointment_task(self, agent: Agent, now: int) -> Task | None:
+        """The agent's own appointment task, once its window is open."""
+        for record in self._appointments.values():
+            if record["status"] != "pending" or agent.id not in record["participants"]:
+                continue
+            if self._appointment_window_opens(record, agent) > now:
+                continue
+            if now > record["meeting_at"] + config.APPOINTMENT_GRACE_MINUTES:
+                continue
+            task = self.tasks.tasks.get(f"appointment:{record['id']}:{agent.id}")
+            if task is not None and task.status in OPEN_TASK_STATES:
+                return task
+        return None
+
     async def _settle_appointments(self) -> list[dict]:
         """Record who turned up, and let broken promises cost something."""
         now = self.get_sim_timestamp()
@@ -1247,17 +1309,33 @@ class SimulationEngine:
         for record in list(self._appointments.values()):
             if record["status"] != "pending":
                 continue
-            window_opens = record["meeting_at"] - config.APPOINTMENT_MIN_LEAD_MINUTES
-            if now >= window_opens:
-                for agent_id in record["participants"]:
-                    agent = self._find_agent_by_id(agent_id)
-                    if agent is None or agent.state.current_location == record["venue"]:
+            for agent_id in record["participants"]:
+                agent = self._find_agent_by_id(agent_id)
+                if agent is None or agent.state.current_location == record["venue"]:
+                    continue
+                if now >= self._appointment_window_opens(record, agent):
+                    # This is the exception the promise admits: something more
+                    # urgent is happening, so the agent is left to deal with it
+                    # instead of being dragged out of a meal every tick.
+                    if self.routine_planner.urgent_need_task(agent, self, now) is not None:
                         continue
                     # Promises need a way out of whatever is being done right
-                    # now: an activity that carries no commitment can be
-                    # finished later, otherwise the arrangement is missed while
-                    # the agent is busy being punctual about something else.
-                    if agent.state.status == "ACTING" and agent._activity_commitment_id is None:
+                    # now: an uncommitted activity can be finished later and a
+                    # trip already under way can be abandoned. Only the agent's
+                    # own free time is theirs to rearrange — a shift they are in
+                    # the middle of is not.
+                    if not self._in_flexible_slot(agent):
+                        continue
+                    heading_there = str(
+                        (agent._movement_action or {}).get("location", "")
+                    ) == record["venue"]
+                    if agent.state.status == "MOVING" and not heading_there:
+                        abandoned = agent.cancel_movement()
+                        await self.trace.log(
+                            self.get_sim_time_str(), agent.id, "appointment", "diverted",
+                            f"放弃{abandoned} → 改去{location_name(record['venue'])}赴约",
+                        )
+                    elif agent.state.status == "ACTING":
                         released = agent.interrupt_activity()
                         await self.trace.log(
                             self.get_sim_time_str(), agent.id, "appointment", "left_to_go",

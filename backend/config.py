@@ -90,7 +90,7 @@ class Config:
     # far ahead they may plan, how late still counts, and how many promises one
     # agent can be carrying at once.
     APPOINTMENT_MIN_LEAD_MINUTES: int = int(os.getenv("APPOINTMENT_MIN_LEAD_MINUTES", "20"))
-    APPOINTMENT_GRACE_MINUTES: int = int(os.getenv("APPOINTMENT_GRACE_MINUTES", "20"))
+    APPOINTMENT_GRACE_MINUTES: int = int(os.getenv("APPOINTMENT_GRACE_MINUTES", "30"))
     # How long the two are expected to stay together once they meet.
     APPOINTMENT_LENGTH_MINUTES: int = int(os.getenv("APPOINTMENT_LENGTH_MINUTES", "30"))
     APPOINTMENT_MAX_PENDING_PER_AGENT: int = int(os.getenv("APPOINTMENT_MAX_PENDING_PER_AGENT", "3"))
