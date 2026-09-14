@@ -15,6 +15,7 @@ from .agent import Agent, AgentState
 from .memory import MemoryStore, auto_importance
 from .llm import LLMProvider
 from .cognition import LifePlanUnavailable
+from .dynamics import dynamics
 from .dialogue import DialogueManager
 from .dialogue_store import DialogueStore
 from .embedding import EmbeddingProvider
@@ -807,7 +808,7 @@ class SimulationEngine:
             )
             held = current and (
                 now - int(record.get("observed_at", -10 ** 9))
-                < config.OBSERVATION_REFRESH_MINUTES
+                < dynamics.observation_refresh_minutes
             )
             snapshot = self.interactions.observation_snapshot(agent, self)
             if held and record.get("signature") == snapshot.get("signature"):

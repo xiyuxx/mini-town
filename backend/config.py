@@ -63,9 +63,6 @@ class Config:
     TOOL_CALL_MAX_PER_DIALOGUE: int = 2
 
     # ── Weather ──
-    WEATHER_CHANGE_PROBABILITY: float = 0.08  # Per 5-minute tick chance of weather change
-    EXTREME_WEATHER_PROBABILITY: float = 0.02
-    INFRASTRUCTURE_EVENT_PROBABILITY: float = 0.005  # ~0.7% per simulated day
 
     # ── Relationship ──
     RELATIONSHIP_FAMILIARITY_TALK_INCREMENT: float = 0.3
@@ -100,10 +97,6 @@ class Config:
     # asking the model to check its day before agreeing.
     APPOINTMENT_TASK_PRIORITY: float = float(os.getenv("APPOINTMENT_TASK_PRIORITY", "1.15"))
 
-    # How often an agent's view of its surroundings is refreshed while it stays
-    # put. Must stay under the 30-minute window that ordering at a counter
-    # depends on, or standing still would make an agent "forget" the room.
-    OBSERVATION_REFRESH_MINUTES: int = int(os.getenv("OBSERVATION_REFRESH_MINUTES", "10"))
     # How long a pair must stay away from an existing arrangement before they can
     # promise each other the same slot again.
     APPOINTMENT_CONFLICT_MINUTES: int = int(os.getenv("APPOINTMENT_CONFLICT_MINUTES", "60"))

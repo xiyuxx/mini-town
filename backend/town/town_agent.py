@@ -7,6 +7,7 @@ It does NOT make decisions for people.
 import random
 from dataclasses import dataclass
 from ..config import config
+from .dynamics import dynamics
 from .world import LOCATION_MAP
 from .world_pack import DEFAULT_WORLD, WorldPack
 
@@ -41,7 +42,7 @@ class WeatherEngine:
         self._condition = str(self.weather.get("initial", next(iter(self.states), "default")))
 
     def tick(self, season: str = "summer") -> dict:
-        if random.random() < config.WEATHER_CHANGE_PROBABILITY:
+        if random.random() < dynamics.weather_change_probability:
             transitions = dict(self.states.get(self._condition, {}).get("transitions", {}))
             if transitions:
                 self._condition = _weighted_choice(transitions)
@@ -71,8 +72,7 @@ class InfrastructureState:
     def __init__(self, world_pack: WorldPack):
         raw = world_pack.infrastructure
         self.services = {str(key): dict(value) for key, value in raw.get("services", {}).items()}
-        duration = raw.get("failure_duration_ticks", [1, 4])
-        self.duration_range = (max(1, int(duration[0])), max(1, int(duration[1])))
+        self.duration_range = dynamics.infrastructure_failure_ticks
         self.values = {key: str(spec.get("normal", "normal")) for key, spec in self.services.items()}
         self._pending: dict[str, int] = {}
 
@@ -82,7 +82,7 @@ class InfrastructureState:
             del self._pending[service]
         for service in list(self._pending):
             self._pending[service] -= 1
-        if self.services and random.random() < config.INFRASTRUCTURE_EVENT_PROBABILITY:
+        if self.services and random.random() < dynamics.infrastructure_failure_probability:
             available = [key for key in self.services if key not in self._pending]
             if available:
                 service = random.choice(available)

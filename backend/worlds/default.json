@@ -1468,11 +1468,7 @@
           "closed": "主街封闭"
         }
       }
-    },
-    "failure_duration_ticks": [
-      6,
-      36
-    ]
+    }
   },
   "simulation": {
     "need_deltas_per_tick": {
