@@ -17,6 +17,22 @@ def _id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 
+class LifePlanUnavailable(RuntimeError):
+    """The plan cannot supply an action right now — not an LLM failure.
+
+    Kept apart from real provider errors so a stale or finished plan is not
+    reported to the town as broken decision-making.
+    """
+
+
+class PlanStepBlocked(LifePlanUnavailable):
+    """The current step is infeasible in the world as it stands."""
+
+
+class LifePlanExhausted(LifePlanUnavailable):
+    """Every step is done; the agent needs a new plan."""
+
+
 @dataclass(frozen=True)
 class ActiveConsideration:
     """A code-owned reason that can influence the next decision."""
@@ -219,7 +235,26 @@ class LifePlan:
             self.status = "completed"
         return True
 
+    def skip_current_step(self, now: int) -> PlanStep | None:
+        """Retire a step whose goal already holds, without executing it.
+
+        A step is a description of a state the agent wanted to reach. If the
+        world is already there — standing in the room the plan wanted to walk
+        to — there is nothing to carry out, and the step is retired as skipped
+        rather than reported as a failure.
+        """
+        step = self.current_step
+        if not step:
+            return None
+        step.status = "skipped"
+        self.current_step_index += 1
+        if self.current_step is None:
+            self.status = "completed"
+        return step
+
     def block_current_step(self, fact_id: str, reason: str) -> None:
+        if self.status == "completed":
+            return          # a finished plan has nothing left to block
         step = self.current_step
         if step:
             step.status = "blocked"

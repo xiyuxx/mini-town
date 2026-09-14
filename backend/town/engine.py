@@ -14,6 +14,7 @@ from .world import LOCATIONS, LOCATION_MAP, can_enter, location_name, agents_at_
 from .agent import Agent, AgentState
 from .memory import MemoryStore, auto_importance
 from .llm import LLMProvider
+from .cognition import LifePlanUnavailable
 from .dialogue import DialogueManager
 from .dialogue_store import DialogueStore
 from .embedding import EmbeddingProvider
@@ -606,6 +607,7 @@ class SimulationEngine:
                     sim_time_str, agent.id, "llm", "life_plan_stale", reason,
                 )
                 continue
+            plan = None
             try:
                 plan = task.result()
                 agent.mental_state.life_plan = plan
@@ -615,6 +617,13 @@ class SimulationEngine:
                 self._simulation_error = None
             except asyncio.CancelledError:
                 continue
+            except LifePlanUnavailable as exc:
+                # A plan the world has outgrown is not a broken model. Retire it
+                # and let the next tick rebuild from this reason; the town is not
+                # told that decision-making failed.
+                if plan is not None:
+                    plan.block_current_step("", str(exc))
+                await self.trace.log(sim_time_str, agent.id, "plan", "rejected", str(exc)[:200])
             except Exception as exc:
                 self._simulation_error = {
                     "type": "decision_deferred",
@@ -826,6 +835,12 @@ class SimulationEngine:
                     sim_time_str, agent.id, "plan", "step_selected",
                     str(decisions[agent.id])[:200],
                 )
+            except LifePlanUnavailable as exc:
+                # The plan no longer fits the world: replan with the reason, but
+                # say so as a plan event — this is not a broken model.
+                plan.block_current_step("", str(exc))
+                await self.trace.log(sim_time_str, agent.id, "plan", "rejected", str(exc)[:200])
+                planning_agents.append(agent)
             except Exception as exc:
                 plan.block_current_step("", str(exc))
                 planning_agents.append(agent)
@@ -863,6 +878,10 @@ class SimulationEngine:
                 await self.trace.log(sim_time_str, agent.id, "plan", "life_plan_created", result.focus[:200])
                 try:
                     decisions[agent.id] = self.planner.next_plan_action(agent, self)
+                except LifePlanUnavailable as exc:
+                    result.block_current_step("", str(exc))
+                    await self.trace.log(sim_time_str, agent.id, "plan", "rejected", str(exc)[:200])
+                    still_planning.append(agent)
                 except Exception as exc:
                     result.block_current_step("", str(exc))
                     still_planning.append(agent)

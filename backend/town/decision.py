@@ -3,7 +3,10 @@
 from dataclasses import asdict
 import json
 
-from .cognition import DecisionProposal, IntentionProposal, LifePlan, PlanStep
+from .cognition import (
+    DecisionProposal, IntentionProposal, LifePlan, LifePlanExhausted,
+    LifePlanUnavailable, PlanStep, PlanStepBlocked,
+)
 from .daily_plan import DailyPlan, parse_daily_plan
 
 
@@ -134,14 +137,48 @@ content不得包含ID、括号假设或系统校验说明。不要补写上下�
             replan_reason=replan_reason[:240],
         )
 
+    def _skip_satisfied_steps(self, agent, engine, plan) -> int:
+        """Retire travel steps the agent is already standing at.
+
+        Plans are told to make travel a step of its own, so an agent that
+        starts a plan where it already wants to be has its first step already
+        true. Validating that step rejects the whole plan, and the next plan
+        opens with the same step — a loop that burns two LLM calls per round.
+        """
+        now = engine.get_sim_timestamp()
+        skipped = 0
+        while True:
+            step = plan.current_step
+            if step is None:
+                break
+            action = dict(step.action)
+            interaction_type = str(action.get("interaction_type") or action.get("action") or "")
+            if interaction_type != "move":
+                break
+            target = str(
+                action.get("location") or action.get("location_id")
+                or action.get("target_location") or ""
+            )
+            if not target:
+                locations = engine.context.world_query.locations_for_intention(
+                    agent, engine, action, limit=1,
+                )
+                target = locations[0]["id"] if locations else ""
+            if target != agent.state.current_location:
+                break       # a real trip, or no target at all: let validation judge it
+            plan.skip_current_step(now)
+            skipped += 1
+        return skipped
+
     def next_plan_action(self, agent, engine) -> dict:
         plan = agent.mental_state.life_plan
         if not plan or plan.status != "active":
-            raise RuntimeError("agent has no active life plan")
+            raise LifePlanUnavailable("agent has no active life plan")
+        self._skip_satisfied_steps(agent, engine, plan)
         step = plan.current_step
         if not step:
             plan.status = "completed"
-            raise RuntimeError("life plan is complete")
+            raise LifePlanExhausted("life plan is complete")
         action = dict(step.action)
         interaction_type = str(action.get("interaction_type") or action.get("action") or "")
         if interaction_type != "move" and not action.get("location"):
@@ -160,7 +197,7 @@ content不得包含ID、括号假设或系统校验说明。不要补写上下�
         })
         result = engine.interactions.validate(agent, action, engine, step.id)
         if not result.feasible:
-            raise RuntimeError("plan step blocked: " + "; ".join(result.reasons))
+            raise PlanStepBlocked("plan step blocked: " + "; ".join(result.reasons))
         resolved = result.resolved_action
         resolved["validated_effects"] = result.expected_effects
         resolved["duration_minutes"] = result.estimated_minutes
