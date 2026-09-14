@@ -10,6 +10,7 @@ from .world import (
     location_affordances, travel_cost, can_enter, GRID, GRID_W, GRID_H,
 )
 from .llm import LLMProvider
+from .embedding import similarity_gates
 from .memory import MemoryStore, memories_to_text, auto_importance
 from .tools_full import make_registry_for
 from .schedule import RoutineBlock, ScheduleItem, compile_routine_blocks, compile_schedule
@@ -444,46 +445,41 @@ class Agent:
                         current_sim_timestamp: int | None = None) -> list[dict]:
         """Embed stimulus and retrieve semantically similar past memories.
 
-        Returns list of {memory, similarity} dicts above similarity threshold (0.75),
-        sorted by similarity descending.
+        Returns list of {memory, similarity} dicts above the association gate,
+        sorted by similarity descending. Recall is read-only; only the memories
+        that actually re-surfaced are reinforced, so importance tracks genuine
+        remembering instead of lookup count.
         """
         description = stimulus.get("description", "")
         if not description:
             return []
 
-        # Use semantic_search for embedding-backed retrieval
+        gate = similarity_gates(embedding_provider)["association"]
         try:
-            memories = await memory_store.semantic_search(
+            scored = await memory_store.semantic_search_scored(
                 self.id, description, embedding_provider, limit=10,
                 current_sim_timestamp=current_sim_timestamp,
             )
         except Exception:
-            return []
-
-        if not memories:
-            return []
-
-        # Compute stimulus embedding once for similarity scoring
-        try:
-            stim_emb = await embedding_provider.embed_one(description)
-        except Exception:
+            # The provider records the failure (stats, warning, degraded health),
+            # so an outage is not mistaken for "nothing came to mind".
             return []
 
         emotional_valence = stimulus.get("emotional_valence", 0.0)
-        associations = []
-        for mem in memories:
-            if mem.embedding:
-                sim = embedding_provider.cosine_similarity(stim_emb, mem.embedding)
-            else:
-                sim = 0.5
-            if sim > 0.75:
-                associations.append({
-                    "memory": mem,
-                    "similarity": sim,
-                    "emotional_valence": emotional_valence,
-                    "current_sim_timestamp": current_sim_timestamp,
-                })
-        associations.sort(key=lambda x: x["similarity"], reverse=True)
+        associations = [
+            {
+                "memory": memory,
+                "similarity": similarity,
+                "emotional_valence": emotional_valence,
+                "current_sim_timestamp": current_sim_timestamp,
+            }
+            for memory, similarity in scored
+            if similarity > gate
+        ]
+        if not associations:
+            return []
+        associations.sort(key=lambda item: item["similarity"], reverse=True)
+        await memory_store.reinforce(self.id, [item["memory"].id for item in associations])
         return associations
 
     def should_interrupt(self, associations: list[dict], current_plan: str = "") -> bool:
@@ -491,7 +487,7 @@ class Agent:
 
         Weighted scoring per association:
             emotional_valence * 0.4 + similarity * 0.3 + age_days_factor * 0.2 + social_importance * 0.1
-        Interrupt if max score > 0.7.
+        Interrupt when the best score exceeds config.MEMORY_INTERRUPT_MIN_SCORE.
 
         Args:
             associations: list of {memory, similarity, emotional_valence} from associate()
@@ -530,7 +526,7 @@ class Agent:
             if score > best_score:
                 best_score = score
 
-        return best_score > 0.7
+        return best_score > config.MEMORY_INTERRUPT_MIN_SCORE
 
     # ── Decision ──────────────────────────────────────────────
 

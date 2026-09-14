@@ -2,13 +2,14 @@
 
 import aiosqlite
 import json
-import math
 import os
+import struct
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
 from backend.config import config
+from .embedding import EmbeddingProvider
 from .sim_time import parse_sim_time, sim_timestamp
 
 
@@ -51,6 +52,11 @@ class MemoryStore:
     def set_embedding_provider(self, provider) -> None:
         self.embedding_provider = provider
 
+    def _space_for(self, embedding: list[float] | None) -> str:
+        if not embedding or self.embedding_provider is None:
+            return ""
+        return self.embedding_provider.space_for(embedding)
+
     async def init_db(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         async with aiosqlite.connect(self.db_path) as db:
@@ -83,6 +89,12 @@ class MemoryStore:
                 "future_intention": "TEXT DEFAULT ''",
                 "confidence": "REAL DEFAULT 1.0",
                 "formation_score": "REAL DEFAULT 0.0",
+                # Vector space of the stored vector (model:dimension, or the
+                # local hash scheme). Vectors from another space are stale, not
+                # comparable, and get rebuilt by reembed_stale(). Appended last
+                # so the positional row mapping stays valid for databases created
+                # before this column existed.
+                "embedding_space": "TEXT DEFAULT ''",
             }
             for name, definition in columns.items():
                 try:
@@ -152,7 +164,10 @@ class MemoryStore:
             try:
                 embedding = await self.embedding_provider.embed_one(stripped)
             except Exception:
+                # Stored without a vector; reembed_stale() retries it later
+                # because the provider records the failure.
                 embedding = None
+        embedding_space = self._space_for(embedding)
 
         mem = Memory(
             id=f"mem_{uuid.uuid4().hex[:12]}",
@@ -183,15 +198,15 @@ class MemoryStore:
             await db.execute(
                 """INSERT INTO memories
                    (id, agent_id, time, location, content, importance, type,
-                    embedding, recall_count, created_at, sim_day, sim_minute,
-                    sim_timestamp, participants, emotion, source_ids, event_type,
-                    tier, fact_summary, interpretation, unresolved, future_intention,
-                    confidence, formation_score)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    embedding, embedding_space, recall_count, created_at, sim_day,
+                    sim_minute, sim_timestamp, participants, emotion, source_ids,
+                    event_type, tier, fact_summary, interpretation, unresolved,
+                    future_intention, confidence, formation_score)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     mem.id, mem.agent_id, mem.time, mem.location, mem.content,
                     mem.importance, mem.type,
-                    json.dumps(embedding) if embedding else None,
+                    _encode_embedding(embedding), embedding_space,
                     mem.created_at, mem.sim_day, mem.sim_minute, mem.sim_timestamp,
                     json.dumps(mem.participants, ensure_ascii=False), mem.emotion,
                     json.dumps(mem.source_ids, ensure_ascii=False), mem.event_type,
@@ -372,30 +387,38 @@ class MemoryStore:
                         )
             await db.commit()
 
-    async def consolidate(self, agent_id: str, memory_id: str):
+    async def reinforce(self, agent_id: str, memory_ids: list[str]) -> None:
+        """Count a genuine recall; the third recall makes a memory stickier.
+
+        Explicit on purpose: lookups must not mutate the store, so callers name
+        the memories they actually re-surfaced.
+        """
+        if not memory_ids:
+            return
+        placeholders = ",".join("?" for _ in memory_ids)
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                "SELECT recall_count, importance FROM memories WHERE id = ? AND agent_id = ?",
-                (memory_id, agent_id),
+                f"SELECT id, recall_count, importance FROM memories "
+                f"WHERE agent_id = ? AND id IN ({placeholders})",
+                (agent_id, *memory_ids),
             )
-            row = await cursor.fetchone()
-            if row is None:
-                return
-            old_count, importance = row[0] or 0, row[1]
-            count = old_count + 1
-            if old_count < 3 <= count:
-                importance = min(10, importance + 2)
-            await db.execute(
-                "UPDATE memories SET recall_count = ?, importance = ? WHERE id = ?",
-                (count, importance, memory_id),
-            )
+            rows = await cursor.fetchall()
+            for memory_id, recall_count, importance in rows:
+                previous = recall_count or 0
+                count = previous + 1
+                if previous < 3 <= count:
+                    importance = min(10, importance + 2)
+                await db.execute(
+                    "UPDATE memories SET recall_count = ?, importance = ? WHERE id = ?",
+                    (count, importance, memory_id),
+                )
             await db.commit()
 
     async def merge_similar(self, agent_id: str):
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                "SELECT id, time, location, content, importance, type, sim_day, sim_timestamp "
-                "FROM memories WHERE agent_id = ? AND sim_day IS NOT NULL "
+                "SELECT id, time, location, content, importance, type, sim_day, sim_timestamp, "
+                "event_type, tier FROM memories WHERE agent_id = ? AND sim_day IS NOT NULL "
                 "AND type NOT IN ('reflection', 'dialogue') ORDER BY sim_timestamp", (agent_id,)
             )
             rows = await cursor.fetchall()
@@ -411,6 +434,10 @@ class MemoryStore:
             latest = max(row[7] for row in group)
             importance = min(10, round(sum(row[4] for row in group) / len(group)))
             summary = f"第{day}天在{location}的{mem_type}记录：" + "；".join(contents)
+            # The merged row keeps the newest source's provenance, otherwise the
+            # summary becomes invisible to event-type based dedup.
+            newest = max(group, key=lambda row: row[7])
+            merged_id = f"mem_{uuid.uuid4().hex[:12]}"
             async with aiosqlite.connect(self.db_path) as db:
                 placeholders = ",".join("?" for _ in ids)
                 await db.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", ids)
@@ -418,64 +445,193 @@ class MemoryStore:
                     """INSERT INTO memories
                        (id, agent_id, time, location, content, importance, type,
                         recall_count, created_at, sim_day, sim_minute, sim_timestamp,
-                        participants, emotion, source_ids)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, '[]', '', ?)""",
-                    (f"mem_{uuid.uuid4().hex[:12]}", agent_id, group[-1][1], location,
+                        participants, emotion, source_ids, event_type, tier, fact_summary)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, '[]', '', ?, ?, ?, ?)""",
+                    (merged_id, agent_id, newest[1], location,
                      summary, importance, mem_type, datetime.now().isoformat(), day,
-                     latest % 1440, latest, json.dumps(ids)),
+                     latest % 1440, latest, json.dumps(ids), newest[8], newest[9], summary),
                 )
                 await db.commit()
+            await self._attach_embedding(merged_id, summary)
 
-    async def embed_all_memories(self, provider=None) -> None:
-        provider = provider or self.embedding_provider
-        if provider is None:
+    async def _attach_embedding(self, memory_id: str, text: str) -> None:
+        """Best-effort vector write for a single row (used by merges)."""
+        provider = self.embedding_provider
+        if provider is None or not text.strip():
+            return
+        try:
+            vector = await provider.embed_one(text)
+        except Exception:
             return
         async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute("SELECT id, content FROM memories WHERE embedding IS NULL")
-            rows = await cursor.fetchall()
-        for index in range(0, len(rows), 20):
-            batch = rows[index:index + 20]
-            embeddings = await provider.embed_many([row[1] for row in batch])
+            await db.execute(
+                "UPDATE memories SET embedding = ?, embedding_space = ? WHERE id = ?",
+                (_encode_embedding(vector), self._space_for(vector), memory_id),
+            )
+            await db.commit()
+
+    async def reembed_stale(self, provider=None, max_rows: int | None = None) -> int:
+        """Rebuild memories whose vector is missing or from another space.
+
+        Returns the number of rows still stale afterwards. A live provider names
+        the target space with one probe request, which also makes a bad key
+        visible at startup. Fallback providers are skipped: they have nothing
+        better to write, and overwriting stored model embeddings with hash
+        vectors would destroy them.
+        """
+        provider = provider or self.embedding_provider
+        if provider is None or provider.fallback:
+            return 0
+        budget = config.EMBEDDING_REEMBED_MAX_ROWS if max_rows is None else max_rows
+        if not await self._count_rows():
+            return 0
+        try:
+            probe = await provider.embed_many(["probe"])
+        except Exception:
+            return await self._count_stale_stale_unknown()
+        stale_where = (
+            "(embedding IS NULL OR embedding_space != ?) "
+            "AND (importance >= 6 OR COALESCE(event_type, '') != '')"
+        )
+        params = [provider.space_for(probe[0])]
+        processed = 0
+        while budget <= 0 or processed < budget:
+            batch_size = 20 if budget <= 0 else min(20, budget - processed)
             async with aiosqlite.connect(self.db_path) as db:
-                for (memory_id, _), embedding in zip(batch, embeddings):
+                cursor = await db.execute(
+                    f"SELECT id, content FROM memories WHERE {stale_where} "
+                    "ORDER BY COALESCE(sim_timestamp, 0) DESC LIMIT ?",
+                    (*params, batch_size),
+                )
+                batch = await cursor.fetchall()
+            if not batch:
+                break
+            try:
+                vectors = await provider.embed_many([content for _, content in batch])
+            except Exception:
+                # Provider recorded the failure; the rest is retried next startup.
+                break
+            space = provider.space_for(vectors[0])
+            async with aiosqlite.connect(self.db_path) as db:
+                for (memory_id, _), vector in zip(batch, vectors):
                     await db.execute(
-                        "UPDATE memories SET embedding = ? WHERE id = ?",
-                        (json.dumps(embedding), memory_id),
+                        "UPDATE memories SET embedding = ?, embedding_space = ? WHERE id = ?",
+                        (_encode_embedding(vector), space, memory_id),
                     )
                 await db.commit()
+            processed += len(batch)
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                f"SELECT COUNT(*) FROM memories WHERE {stale_where}", params
+            )
+            row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    async def _count_rows(self) -> int:
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM memories")
+            row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    async def _count_stale_stale_unknown(self) -> int:
+        """Stale rows counted without knowing the live space (probe failed)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM memories WHERE embedding IS NULL "
+                "AND (importance >= 6 OR COALESCE(event_type, '') != '')"
+            )
+            row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    async def semantic_search_scored(self, agent_id: str, query: str, provider=None,
+                                     limit: int = 5,
+                                     current_sim_timestamp: int | None = None
+                                     ) -> list[tuple[Memory, float]]:
+        """Score the agent's stored vectors against ``query``, highest first.
+
+        Read-only: recalling a memory does not modify it. Only rows embedded in
+        the same space as the query take part — vectors from another model or
+        from the local hash scheme are rebuilt by reembed_stale() rather than
+        being compared as if the numbers were comparable.
+        """
+        provider = provider or self.embedding_provider
+        if provider is None or not query.strip():
+            return []
+        query_embedding = await provider.embed_one(query)
+        where = ["agent_id = ?", "embedding IS NOT NULL", "embedding_space = ?"]
+        params: list = [agent_id, provider.space_for(query_embedding)]
+        if current_sim_timestamp is not None:
+            where.append("(sim_timestamp IS NULL OR (sim_timestamp >= ? AND sim_timestamp <= ?))")
+            params.extend([
+                current_sim_timestamp - config.MEMORY_SEMANTIC_WINDOW_DAYS * 1440,
+                current_sim_timestamp,
+            ])
+        sql = (
+            "SELECT id, embedding FROM memories WHERE " + " AND ".join(where) +
+            " ORDER BY COALESCE(sim_timestamp, 0) DESC"
+        )
+        if config.MEMORY_SEMANTIC_CANDIDATE_LIMIT > 0:
+            sql += " LIMIT ?"
+            params.append(config.MEMORY_SEMANTIC_CANDIDATE_LIMIT)
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(sql, params)
+            rows = await cursor.fetchall()
+        scored: list[tuple[float, str]] = []
+        for memory_id, blob in rows:
+            vector = _decode_embedding(blob)
+            if not vector or len(vector) != len(query_embedding):
+                continue
+            scored.append((EmbeddingProvider.cosine_similarity(query_embedding, vector), memory_id))
+        if not scored:
+            return []
+        scored.sort(key=lambda item: item[0], reverse=True)
+        top = scored[:max(0, limit)]
+        placeholders = ",".join("?" for _ in top)
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                f"SELECT * FROM memories WHERE id IN ({placeholders})",
+                [memory_id for _, memory_id in top],
+            )
+            loaded = {row[0]: _row_to_memory(row) for row in await cursor.fetchall()}
+        return [(loaded[memory_id], score) for score, memory_id in top if memory_id in loaded]
 
     async def semantic_search(self, agent_id: str, query: str, provider=None,
                               limit: int = 5,
                               current_sim_timestamp: int | None = None) -> list[Memory]:
-        provider = provider or self.embedding_provider
-        if provider is None:
-            return []
-        query_embedding = await provider.embed_one(query)
-        where = "agent_id = ? AND embedding IS NOT NULL"
-        params: list = [agent_id]
-        if current_sim_timestamp is not None:
-            where += " AND sim_timestamp >= ? AND sim_timestamp <= ?"
-            params.extend([current_sim_timestamp - 7 * 1440, current_sim_timestamp])
-        async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(f"SELECT * FROM memories WHERE {where}", params)
-            rows = await cursor.fetchall()
-        scored = []
-        for memory in map(_row_to_memory, rows):
-            if memory.embedding:
-                scored.append((_cosine_similarity(query_embedding, memory.embedding), memory))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        result = [memory for _, memory in scored[:limit]]
-        for memory in result:
-            await self.consolidate(agent_id, memory.id)
-        return result
+        scored = await self.semantic_search_scored(
+            agent_id, query, provider, limit, current_sim_timestamp
+        )
+        return [memory for memory, _ in scored]
 
-    async def update_embedding(self, memory_id: str, embedding: list[float]) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                "UPDATE memories SET embedding = ? WHERE id = ?",
-                (json.dumps(embedding), memory_id),
-            )
-            await db.commit()
+
+def _encode_embedding(vector: list[float] | None) -> bytes | None:
+    """Pack a vector as float32; JSON text costs ~5x the space for the same data."""
+    if not vector:
+        return None
+    return struct.pack(f"<{len(vector)}f", *vector)
+
+
+def _decode_embedding(value) -> list[float] | None:
+    """Read a vector stored packed, or in the legacy JSON text format."""
+    if not value:
+        return None
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raw = bytes(value)
+        if len(raw) % 4:
+            return None
+        return list(struct.unpack(f"<{len(raw) // 4}f", raw))
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return None
+        if not isinstance(parsed, list):
+            return None
+        try:
+            return [float(item) for item in parsed]
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def _json_list(value) -> list:
@@ -492,7 +648,7 @@ def _row_to_memory(row: tuple) -> Memory:
     return Memory(
         id=row[0], agent_id=row[1], time=row[2], location=row[3],
         content=row[4], importance=row[5], type=row[6],
-        embedding=_json_list(row[7]) or None,
+        embedding=_decode_embedding(row[7]),
         recall_count=(row[8] or 0) if len(row) > 8 else 0,
         created_at=(row[9] or "") if len(row) > 9 else "",
         sim_day=row[10] if len(row) > 10 else None,
@@ -510,13 +666,6 @@ def _row_to_memory(row: tuple) -> Memory:
         confidence=float(row[22] or 1.0) if len(row) > 22 else 1.0,
         formation_score=float(row[23] or 0.0) if len(row) > 23 else 0.0,
     )
-
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-    return dot / (norm_a * norm_b) if norm_a and norm_b else 0.0
 
 
 def memories_to_text(memories: list[Memory]) -> str:

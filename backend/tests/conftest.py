@@ -14,3 +14,13 @@ from backend.config import config
 def isolated_database(tmp_path, monkeypatch):
     """Give every test a fresh default SQLite path."""
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "town.db"))
+
+
+@pytest.fixture(autouse=True)
+def offline_embeddings(monkeypatch):
+    """Keep the suite off the network: embeddings always use local hash vectors.
+
+    A developer .env holding a real EMBEDDING_API_KEY would otherwise make the
+    suite call the live provider — slow, nondeterministic, and billed.
+    """
+    monkeypatch.setattr(config, "EMBEDDING_API_KEY", "")

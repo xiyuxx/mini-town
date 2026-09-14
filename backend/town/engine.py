@@ -190,6 +190,29 @@ class SimulationEngine:
         self._init_agents()
         for agent in self.agents:
             await self.cognition_store.load_agent(agent, self.habits)
+        await self._reembed_stale_memories()
+
+    async def _reembed_stale_memories(self) -> None:
+        """Give stored memories a vector in the current space, within budget.
+
+        Best effort: a provider outage or an unusable key must not stop startup,
+        and the provider itself records the failure.
+        """
+        if self.embedding_provider.fallback:
+            return
+        try:
+            remaining = await self.memory.reembed_stale(
+                self.embedding_provider, max_rows=config.EMBEDDING_REEMBED_MAX_ROWS
+            )
+        except Exception as exc:
+            print(f"[EMBED] backfill failed: {exc}", flush=True)
+            return
+        if remaining:
+            print(
+                f"[EMBED] {remaining} memories still lack a vector in "
+                f"{self.embedding_provider.model} space — restart to continue",
+                flush=True,
+            )
 
     def _init_agents(self):
         """Create Agent instances from definitions."""
@@ -270,7 +293,12 @@ class SimulationEngine:
                     "busy" if self._planning_tasks or self._daily_plan_tasks or self._routine_choice_tasks or self._dialogue_turn_tasks else
                     "connected"
                 ),
-                "embedding": "fallback" if self.embedding_provider.fallback else "connected",
+                "embedding": (
+                    "fallback" if self.embedding_provider.fallback else
+                    "degraded" if self.embedding_provider.degraded else
+                    "connected"
+                ),
+                "embeddingError": self.embedding_provider.last_error,
                 "dialogue": "healthy",
                 "memory": "healthy",
                 "reflection": "fallback-disabled" if self.llm.fallback else "healthy",
@@ -352,6 +380,7 @@ class SimulationEngine:
             await asyncio.gather(*tasks, return_exceptions=True)
         await self._persist_cognition()
         await self.llm.close()
+        await self.embedding_provider.close()
 
     async def reset(self):
         self.running = False

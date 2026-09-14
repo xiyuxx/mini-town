@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 import uuid
 
+from .embedding import similarity_gates
 from .memory import Memory
 from .world import location_name
 from .cognition import Intention
@@ -281,19 +282,23 @@ class MemoryFormation:
 
     async def _is_redundant(self, agent_id: str, candidate: MemoryCandidate,
                             current_timestamp: int) -> bool:
-        similar = await self.memory.semantic_search(
-            agent_id, candidate.fact_summary, limit=3,
-            current_sim_timestamp=current_timestamp,
+        """Whether an equivalent memory of the same kind already exists.
+
+        Read-only and fail-open: a lookup failure reports "not redundant" so a
+        provider outage cannot silently discard the experience.
+        """
+        try:
+            scored = await self.memory.semantic_search_scored(
+                agent_id, candidate.fact_summary, limit=3,
+                current_sim_timestamp=current_timestamp,
+            )
+        except Exception:
+            return False
+        gate = similarity_gates(self.memory.embedding_provider)["redundancy"]
+        return any(
+            similarity > gate and memory.event_type == candidate.event.type
+            for memory, similarity in scored
         )
-        query_embedding = None
-        if similar and self.memory.embedding_provider:
-            query_embedding = await self.memory.embedding_provider.embed_one(candidate.fact_summary)
-        for memory in similar:
-            if memory.embedding and query_embedding is not None:
-                similarity = self.memory.embedding_provider.cosine_similarity(query_embedding, memory.embedding)
-                if similarity > 0.88 and memory.event_type == candidate.event.type:
-                    return True
-        return False
 
     async def _encode(self, agent, candidate: MemoryCandidate, engine) -> str:
         fallback = self._fallback_content(candidate)

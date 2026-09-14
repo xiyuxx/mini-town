@@ -26,6 +26,11 @@ class Config:
         "https://ws-gm39fo0e2wutrc92.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
     )
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-v4")
+    EMBEDDING_MAX_CONCURRENCY: int = int(os.getenv("EMBEDDING_MAX_CONCURRENCY", "4"))
+    EMBEDDING_TIMEOUT_SECONDS: float = float(os.getenv("EMBEDDING_TIMEOUT_SECONDS", "15"))
+    EMBEDDING_MAX_RETRIES: int = int(os.getenv("EMBEDDING_MAX_RETRIES", "2"))
+    # Backfill budget per startup for memories stored without a usable vector.
+    EMBEDDING_REEMBED_MAX_ROWS: int = int(os.getenv("EMBEDDING_REEMBED_MAX_ROWS", "500"))
 
     # ── Database ──
     DB_PATH: str = os.path.join(os.path.dirname(__file__), "data", "town.db")
@@ -39,6 +44,20 @@ class Config:
     MEMORY_RECENT_HOURS: int = 4
     MEMORY_MAX_RETRIEVE: int = 30
     REFLECTION_INTERVAL_HOURS: int = 2
+    # Semantic recall scans at most this many candidate vectors per lookup
+    # (0 = unbounded). Keeps a large memory table from turning every lookup
+    # into a full-table vector scan.
+    MEMORY_SEMANTIC_CANDIDATE_LIMIT: int = int(os.getenv("MEMORY_SEMANTIC_CANDIDATE_LIMIT", "2000"))
+    MEMORY_SEMANTIC_WINDOW_DAYS: int = int(os.getenv("MEMORY_SEMANTIC_WINDOW_DAYS", "7"))
+    # Similarity gates for model embeddings and for the local token-hash vectors.
+    # The two spaces have different geometry, so they cannot share thresholds.
+    MEMORY_ASSOCIATION_MIN_SIMILARITY: float = float(os.getenv("MEMORY_ASSOCIATION_MIN_SIMILARITY", "0.75"))
+    MEMORY_REDUNDANCY_MIN_SIMILARITY: float = float(os.getenv("MEMORY_REDUNDANCY_MIN_SIMILARITY", "0.88"))
+    # Hash-space gates, calibrated on measured pairs: restatements of one event
+    # score 0.46-0.72, distinct events <= 0.34, near-identical text 0.90-0.98.
+    MEMORY_HASH_ASSOCIATION_MIN_SIMILARITY: float = float(os.getenv("MEMORY_HASH_ASSOCIATION_MIN_SIMILARITY", "0.40"))
+    MEMORY_HASH_REDUNDANCY_MIN_SIMILARITY: float = float(os.getenv("MEMORY_HASH_REDUNDANCY_MIN_SIMILARITY", "0.85"))
+    MEMORY_INTERRUPT_MIN_SCORE: float = float(os.getenv("MEMORY_INTERRUPT_MIN_SCORE", "0.7"))
     SCHEDULE_DEVIATION_PROBABILITY: float = 0.0  # Disabled — too chaotic
     TOOL_CALL_MAX_PER_DECISION: int = 5
     TOOL_CALL_MAX_PER_DIALOGUE: int = 2
