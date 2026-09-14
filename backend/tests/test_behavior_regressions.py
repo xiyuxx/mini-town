@@ -555,6 +555,51 @@ def test_new_idle_encounter_starts_a_bounded_dialogue(tmp_path):
     run(scenario())
 
 
+def test_finished_realtime_dialogue_releases_both_speakers(tmp_path):
+    """A conversation that ends must return both speakers to the world.
+
+    Closing events arrive after the session has already left _active_dialogues,
+    so the stale-result guard used to discard them and leave both participants
+    in SPEAKING/LISTENING forever — after which they never act or talk again.
+    """
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        engine._realtime_llm = True
+        engine.routine_planner.next_action = lambda _agent, _engine: None
+        first, second = engine.agents[:2]
+        engine.agents = [first, second]
+        first.state.current_location = second.state.current_location = "park"
+        first.state.x = second.state.x = 9
+        first.state.y = second.state.y = 8
+        first.state.status = second.state.status = "IDLE"
+
+        session_id = ""
+        settled_after_end = 0
+        for _ in range(30):
+            await engine.tick()
+            for _ in range(6):
+                await asyncio.sleep(0)
+            pending = [task for _, task in engine._dialogue_turn_tasks.values() if not task.done()]
+            if pending:
+                await asyncio.wait(pending, timeout=5)
+            if engine.dialogue._active_dialogues:
+                session_id = next(iter(engine.dialogue._active_dialogues.values())).id
+                settled_after_end = 0
+            elif session_id:
+                # The engine commits the closing turn on the tick after it finished.
+                settled_after_end += 1
+                if settled_after_end >= 2:
+                    break
+
+        assert session_id
+        assert not engine.dialogue._active_dialogues
+        assert first.state.status not in {"SPEAKING", "LISTENING"}
+        assert second.state.status not in {"SPEAKING", "LISTENING"}
+        assert engine._interactions[session_id].status == "completed"
+
+    run(scenario())
+
+
 def test_realtime_mode_replans_after_a_blocked_plan_step(tmp_path):
     async def scenario():
         engine = await make_engine(tmp_path)

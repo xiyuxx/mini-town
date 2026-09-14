@@ -1738,20 +1738,27 @@ class SimulationEngine:
             request = self._dialogue_request_states.pop(location, None)
             if generation != self._task_generation:
                 continue
-            if request:
+            try:
+                raw_events, before = task.result()
+            except asyncio.CancelledError:
+                continue
+            except Exception as exc:
+                await self.trace.log(
+                    sim_time_str, "system", "dialogue", "turn_failed", str(exc)[:200],
+                )
+                continue
+            # A finished dialogue already left _active_dialogues, which makes the
+            # staleness check below reject its closing events and strand both
+            # participants in SPEAKING/LISTENING for good.
+            if request and not any(
+                event.get("type") == "dialogue_end" for event in raw_events
+            ):
                 reason = dialogue_stale_reason(self, request)
                 if reason:
                     await self.trace.log(
                         sim_time_str, "system", "dialogue", "turn_stale", reason,
                     )
                     continue
-            try:
-                raw_events, before = task.result()
-            except asyncio.CancelledError:
-                continue
-            except Exception as exc:
-                await self.trace.log(sim_time_str, "system", "dialogue", "turn_failed", str(exc)[:200])
-                continue
             events.extend(await self._finalize_dialogue_events(raw_events, before))
 
         for location, session in list(self.dialogue._active_dialogues.items()):
