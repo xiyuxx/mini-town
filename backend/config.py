@@ -85,5 +85,16 @@ class Config:
     # per tick (~48/day), so this restores roughly half a day of it.
     SOCIAL_INTERACTION_RECOVERY: float = float(os.getenv("SOCIAL_INTERACTION_RECOVERY", "25"))
 
+    # ── Appointments ──
+    # Two agents who agree on a time and place hold a task each; these bound how
+    # far ahead they may plan, how late still counts, and how many promises one
+    # agent can be carrying at once.
+    APPOINTMENT_MIN_LEAD_MINUTES: int = int(os.getenv("APPOINTMENT_MIN_LEAD_MINUTES", "20"))
+    APPOINTMENT_GRACE_MINUTES: int = int(os.getenv("APPOINTMENT_GRACE_MINUTES", "20"))
+    APPOINTMENT_MAX_PENDING_PER_AGENT: int = int(os.getenv("APPOINTMENT_MAX_PENDING_PER_AGENT", "3"))
+    # How long a pair must stay away from an existing arrangement before they can
+    # promise each other the same slot again.
+    APPOINTMENT_CONFLICT_MINUTES: int = int(os.getenv("APPOINTMENT_CONFLICT_MINUTES", "60"))
+
 
 config = Config()

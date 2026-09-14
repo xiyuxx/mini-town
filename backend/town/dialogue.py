@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from .memory import memories_to_text
 from .sim_time import sim_timestamp
 from .cognition import InteractionContext
+from .world import LOCATIONS
 from .world_pack import DEFAULT_WORLD
 
 FALLBACK_TALK_REPLIES = [str(item) for item in DEFAULT_WORLD.data.get("fallback_dialogue", ["嗯。"])]
@@ -17,7 +18,8 @@ DIALOGUE_SYSTEM_PROMPT = """你是当前世界中的角色，正在和{others}�
 只把“当前可观察事实、当前对话、近期会话”中的内容当作确定事实。
 背景资料仅决定说话风格；推测必须用“好像、看起来、也许”等不确定表达。
 不补写不存在的动作、过去、年份、年龄、病情或共同经历。
-调用 dialogue_reply：content 为1-3句口语；action 为 continue 或 end；同时提交mental_update和referenced_fact_ids。"""
+调用 dialogue_reply：content 为1-3句口语；action 为 continue 或 end；同时提交mental_update和referenced_fact_ids。
+如果聊到要一起做某件事，可以填 appointment：约好的人名、0或1（0=今天，1=明天）、小时、分钟、地点、做什么。地点只能从"可约的地点"里选，时间要留出准备时间。不确定就不要填。"""
 
 DIALOGUE_REPLY_TOOL_DEF = {
     "function": {
@@ -30,6 +32,19 @@ DIALOGUE_REPLY_TOOL_DEF = {
                 "emoji": {"type": "string"},
                 "mental_update": {"type": "object", "additionalProperties": True},
                 "referenced_fact_ids": {"type": "array", "items": {"type": "string"}},
+                "appointment": {
+                    "type": "object",
+                    "description": "聊到要一起做什么时填；其余情况留空",
+                    "properties": {
+                        "with_name": {"type": "string"},
+                        "day_offset": {"type": "integer", "enum": [0, 1]},
+                        "hour": {"type": "integer"},
+                        "minute": {"type": "integer"},
+                        "location": {"type": "string"},
+                        "activity": {"type": "string"},
+                    },
+                    "required": ["with_name", "day_offset", "hour", "minute", "location", "activity"],
+                },
             },
             "required": ["content", "action", "emoji", "mental_update", "referenced_fact_ids"],
         },
@@ -58,6 +73,7 @@ class DialogueManager:
         self.store = store
         self.fact_ledger = None
         self.fact_store = None
+        self.appointment_handler = None
         self._active_dialogues: dict[str, DialogueSession] = {}
 
     def participant_ids(self) -> set[str]:
@@ -204,6 +220,16 @@ class DialogueManager:
                     "summary": recent["summary"],
                     "lastMessages": [message["content"] for message in recent.get("messages", [])[-4:]],
                 }
+        meetup_places = [
+            {"id": loc.id, "name": loc.name}
+            for loc in LOCATIONS if loc.access.get("mode", "public") == "public"
+        ]
+        now_minutes = (sim_timestamp(sim_time) or 0) % 1440
+        my_day = [
+            {"time": f"{item.hour:02d}:{item.minute:02d}", "what": item.activity or item.label}
+            for item in speaker.schedule
+            if item.start_minutes >= now_minutes
+        ][:6]
         known_facts = []
         shareable_facts = []
         if self.fact_ledger is not None:
@@ -238,12 +264,20 @@ class DialogueManager:
 
         async def handler(content: str, action: str, emoji: str,
                           mental_update: dict | None = None,
-                          referenced_fact_ids: list[str] | None = None) -> str:
+                          referenced_fact_ids: list[str] | None = None,
+                          appointment: dict | None = None) -> str:
             captured.update(
                 content=content, action=action, emoji=emoji,
                 mental_update=mental_update or {},
                 referenced_fact_ids=referenced_fact_ids or [],
             )
+            if appointment and self.appointment_handler is not None:
+                accepted, note = await self.appointment_handler(speaker, others, appointment)
+                await trace.log(
+                    sim_time, speaker.id, "appointment",
+                    "accepted" if accepted else "rejected", note[:160],
+                )
+                return f"回复已提交。{note}"
             return "回复已提交"
 
         registry.register("dialogue_reply",
@@ -261,6 +295,8 @@ class DialogueManager:
             f"与参与者的关系：\n{relationships}\n\n"
             f"可引用事实（确定陈述必须引用这里的ID）：\n{known_facts}\n\n"
             f"对方还不知道、可以主动分享的消息（分享时同样引用其ID）：\n{shareable_facts or '无'}\n\n"
+            f"可约的地点（appointment.location 只能从这里选）：\n{meetup_places}\n\n"
+            f"我今天的安排（约时间要避开固定安排）：\n{my_day or '没有别的安排'}\n\n"
             f"双方近期会话（不是冷却限制，可以自然承接）：\n{recent_dialogues or '无'}\n\n"
             f"相关长期记忆：\n{memories_to_text(memories)}\n\n"
             f"当前对话记录：\n" + "\n".join(session.conversation) +

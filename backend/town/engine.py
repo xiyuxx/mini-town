@@ -10,7 +10,7 @@ import uuid
 import random
 from datetime import datetime
 from ..config import config
-from .world import LOCATIONS, location_name, agents_at_location, find_location
+from .world import LOCATIONS, LOCATION_MAP, can_enter, location_name, agents_at_location, find_location
 from .agent import Agent, AgentState
 from .memory import MemoryStore, auto_importance
 from .llm import LLMProvider
@@ -23,7 +23,7 @@ from .town_agent import TownAgent, TownState
 from .tools import ToolRegistry
 from .tools_full import make_registry_for
 from .experience import ExperienceEvent, MemoryFormation
-from .tasks import TaskStore
+from .tasks import Task, TaskStore
 from .routine_planner import RoutinePlanner
 from .candidates import build_routine_candidates
 from .context import ContextService
@@ -151,6 +151,11 @@ class SimulationEngine:
         self._pair_last_greeting: dict[tuple[str, str], int] = {}
         self._agent_dialogue_day: dict[str, tuple[int, int]] = {}
         self._talk_bonus_cache: dict[tuple[str, str], float] = {}
+
+        # ── Arrangements made in conversation, honoured or not ──
+        self._appointments: dict[str, dict] = {}
+        self._appointment_notices: list[dict] = []
+        self.dialogue.appointment_handler = self.create_appointment
 
     # ═══════════════════════════════════════════════════════════════
     # Engine as engine_ref
@@ -414,6 +419,8 @@ class SimulationEngine:
         self._pair_last_greeting.clear()
         self._agent_dialogue_day.clear()
         self._talk_bonus_cache.clear()
+        self._appointments.clear()
+        self._appointment_notices.clear()
         self._active_encounter_pairs.clear()
         self._active_colocation_groups.clear()
         self._day_just_changed = False
@@ -708,6 +715,7 @@ class SimulationEngine:
             self.town_agent.advance_agent_needs(agent)
             decay_emotion(agent)
         await self._update_colocation(sim_time_str)
+        all_events.extend(await self._settle_appointments())
         if self.hour >= 21 and self._last_reflection_day != self.day:
             self._run_in_background(lambda: self._run_reflections(sim_time_str), "reflection_failed", sim_time_str)
             self._last_reflection_timestamp = self.get_sim_timestamp()
@@ -864,6 +872,7 @@ class SimulationEngine:
             self.town_agent.advance_agent_needs(agent)
             decay_emotion(agent)
         await self._update_colocation(sim_time_str)
+        all_events.extend(await self._settle_appointments())
         if self.hour >= 21 and self._last_reflection_day != self.day:
             await self._run_reflections(sim_time_str)
             self._last_reflection_timestamp = self.get_sim_timestamp()
@@ -994,21 +1003,35 @@ class SimulationEngine:
             await self.relationship_store.record_colocation(list(group))
         self._active_colocation_groups = current_groups
 
+    @staticmethod
+    def _open_to_talk(agent: Agent) -> bool:
+        """Idle, or busy with something that can wait.
+
+        Waiting is an activity, so two agents who deliberately meet up would
+        otherwise stand next to each other in silence. Work that carries a
+        commitment is left alone; a chat resumes the activity afterwards.
+        """
+        if agent.state.status == "IDLE":
+            return True
+        if agent.state.status != "ACTING":
+            return False
+        return agent._activity_commitment_id is None
+
     async def _queue_colocated_dialogues(self) -> None:
-        """Let the most worthwhile idle pair at each shared place start talking."""
+        """Let the most worthwhile available pair at each shared place talk."""
         for location, group in self._active_colocation_groups.items():
             if self.dialogue.get_active_at_location(location):
                 continue
-            idle = [
+            free = [
                 agent
                 for agent in (self._find_agent_by_id(agent_id) for agent_id in group)
                 if agent is not None
-                and agent.state.status == "IDLE"
+                and self._open_to_talk(agent)
                 and agent.state.current_location == location
             ]
-            if len(idle) < 2:
+            if len(free) < 2:
                 continue
-            pair = await self._select_dialogue_pair(idle)
+            pair = await self._select_dialogue_pair(free)
             if pair:
                 self._queue_encounter_dialogue(*pair)
 
@@ -1073,6 +1096,258 @@ class SimulationEngine:
                 pair = tuple(sorted((first, second)))
                 self._pair_last_talk[pair] = now
                 self._talk_bonus_cache.pop(pair, None)
+
+    # ═══════════════════════════════════════════════════════════════
+    # Arrangements: two agents promise each other a time and a place
+    # ═══════════════════════════════════════════════════════════════
+
+    async def create_appointment(self, speaker: Agent, others: list[Agent],
+                                 proposal: dict) -> tuple[bool, str]:
+        """Turn something said out loud into a commitment both sides hold.
+
+        Returns whether it took effect and a short note for the speaker, who is
+        the only party that learns the outcome immediately.
+        """
+        partner = next(
+            (other for other in others
+             if other.name == str(proposal.get("with_name", "")).strip()),
+            None,
+        )
+        if partner is None:
+            return False, "没有找到要约的人（只能用当前在场者的名字）"
+        venue = self._resolve_location(proposal.get("location", ""))
+        if not venue:
+            return False, "没有这个地方"
+        if not (can_enter(speaker.id, venue) and can_enter(partner.id, venue)):
+            return False, "这个地点不是双方都能去的地方"
+        meeting_at = self._appointment_timestamp(proposal)
+        if meeting_at is None:
+            return False, "时间无效（只能是今天或明天，6:00-22:00 之间，且要留出准备时间）"
+        activity = str(proposal.get("activity", "")).strip()[:20] or "碰面"
+        slot_minutes = meeting_at % 1440
+        for agent in (speaker, partner):
+            slot = agent._get_schedule_item(slot_minutes // 60, slot_minutes % 60)
+            if slot is not None and not slot.is_flexible_slot:
+                return False, f"{agent.name}那个时间已经有固定安排（{slot.activity or slot.label}）"
+        for agent in (speaker, partner):
+            if len(self._open_appointments(agent.id)) >= config.APPOINTMENT_MAX_PENDING_PER_AGENT:
+                return False, f"{agent.name}已经有好几个约定了"
+            conflict = self._appointment_conflict(agent.id, meeting_at)
+            if conflict:
+                return False, f"{agent.name}在那个时间前后的{conflict}点已经有别的安排"
+
+        appointment_id = f"apt_{uuid.uuid4().hex[:8]}"
+        meeting_minutes = meeting_at % 1440
+        self._appointments[appointment_id] = {
+            "id": appointment_id,
+            "venue": venue,
+            "meeting_at": meeting_at,
+            "activity": activity,
+            "status": "pending",
+            "participants": {
+                agent.id: {"name": agent.name, "arrived_at": None}
+                for agent in (speaker, partner)
+            },
+        }
+        for agent, other in ((speaker, partner), (partner, speaker)):
+            self.tasks.upsert(Task(
+                id=f"appointment:{appointment_id}:{agent.id}",
+                title=f"和{other.name}{activity}",
+                assignee_id=agent.id,
+                source="appointment",
+                location_id=venue,
+                interaction_type="wait",
+                duration_minutes=30,
+                earliest_at=meeting_at - config.APPOINTMENT_MIN_LEAD_MINUTES,
+                deadline_at=meeting_at + config.APPOINTMENT_GRACE_MINUTES,
+                # Below an urgent need, above idle routine: promises are kept
+                # unless something real gets in the way, which is the point.
+                priority=0.88,
+                payload={
+                    "appointment_id": appointment_id,
+                    "partner_id": other.id,
+                    "activity": activity,
+                    "meeting_at": meeting_at,
+                    "venue": venue,
+                },
+                created_at=self.get_sim_timestamp(),
+            ))
+        await self._record_fact(
+            speaker, "appointment_made", venue,
+            {"appointment_id": appointment_id, "partner_id": partner.id,
+             "partner_name": partner.name, "activity": activity,
+             "meeting_at": meeting_at,
+             "time": f"第{meeting_at // 1440 + 1}天 {meeting_minutes // 60:02d}:{meeting_minutes % 60:02d}",
+             "venue": location_name(venue)},
+            participants=[partner.id],
+            source_ids=[appointment_id],
+        )
+        self._appointment_notices.append(self._make_event({
+            "type": "appointment_made",
+            "agentIds": [speaker.id, partner.id],
+            "location": venue,
+            "content": f"{speaker.name}和{partner.name}约好{activity}——"
+                       f"第{meeting_at // 1440 + 1}天 {meeting_minutes // 60:02d}:{meeting_minutes % 60:02d}"
+                       f"在{location_name(venue)}",
+            "cause": "conversation",
+        }))
+        await self.trace.log(
+            self.get_sim_time_str(), speaker.id, "appointment", "made",
+            f"{appointment_id} with {partner.id} at {venue} ts={meeting_at}",
+        )
+        return True, f"约定已记下：{activity}，第{meeting_at // 1440 + 1}天 {meeting_minutes // 60:02d}:{meeting_minutes % 60:02d}，{location_name(venue)}"
+
+    def _resolve_location(self, raw) -> str:
+        text = str(raw or "").strip()
+        if text in LOCATION_MAP:
+            return text
+        return next((loc.id for loc in LOCATIONS if loc.name == text), "")
+
+    def _appointment_timestamp(self, proposal: dict) -> int | None:
+        try:
+            offset = int(proposal.get("day_offset", 0))
+            hour = int(proposal.get("hour"))
+            minute = int(proposal.get("minute", 0))
+        except (TypeError, ValueError):
+            return None
+        if offset not in (0, 1) or not (0 <= hour <= 23) or not (0 <= minute <= 59):
+            return None
+        if not (config.SIM_START_HOUR <= hour <= config.SIM_END_HOUR):
+            return None
+        meeting_at = (self.day - 1 + offset) * 1440 + hour * 60 + minute
+        now = self.get_sim_timestamp()
+        if meeting_at < now + config.APPOINTMENT_MIN_LEAD_MINUTES:
+            return None
+        if meeting_at - now > 2 * 1440:
+            return None
+        return meeting_at
+
+    def _open_appointments(self, agent_id: str) -> list[dict]:
+        return [
+            record for record in self._appointments.values()
+            if record["status"] == "pending" and agent_id in record["participants"]
+        ]
+
+    def _appointment_conflict(self, agent_id: str, meeting_at: int) -> str:
+        for record in self._open_appointments(agent_id):
+            if abs(record["meeting_at"] - meeting_at) < config.APPOINTMENT_CONFLICT_MINUTES:
+                minutes = record["meeting_at"] % 1440
+                return f"{minutes // 60:02d}:{minutes % 60:02d}"
+        return ""
+
+    async def _settle_appointments(self) -> list[dict]:
+        """Record who turned up, and let broken promises cost something."""
+        now = self.get_sim_timestamp()
+        events: list[dict] = self._appointment_notices
+        self._appointment_notices = []
+        for record in list(self._appointments.values()):
+            if record["status"] != "pending":
+                continue
+            window_opens = record["meeting_at"] - config.APPOINTMENT_MIN_LEAD_MINUTES
+            if now >= window_opens:
+                for agent_id in record["participants"]:
+                    agent = self._find_agent_by_id(agent_id)
+                    if agent is None or agent.state.current_location == record["venue"]:
+                        continue
+                    # Promises need a way out of whatever is being done right
+                    # now: an activity that carries no commitment can be
+                    # finished later, otherwise the arrangement is missed while
+                    # the agent is busy being punctual about something else.
+                    if agent.state.status == "ACTING" and agent._activity_commitment_id is None:
+                        released = agent.interrupt_activity()
+                        await self.trace.log(
+                            self.get_sim_time_str(), agent.id, "appointment", "left_to_go",
+                            f"{released} → 去{location_name(record['venue'])}赴约",
+                        )
+            if now >= record["meeting_at"]:
+                for agent_id, entry in record["participants"].items():
+                    agent = self._find_agent_by_id(agent_id)
+                    if (
+                        entry["arrived_at"] is None
+                        and agent is not None
+                        and agent.state.current_location == record["venue"]
+                    ):
+                        entry["arrived_at"] = now
+            if now <= record["meeting_at"] + config.APPOINTMENT_GRACE_MINUTES:
+                continue
+            arrived = [aid for aid, entry in record["participants"].items()
+                       if entry["arrived_at"] is not None]
+            absent = [aid for aid in record["participants"] if aid not in arrived]
+            sim_time = self.get_sim_time_str()
+            venue_name = location_name(record["venue"])
+            if not arrived:
+                record["status"] = "missed"
+                for agent_id in absent:
+                    self._close_appointment_task(record, agent_id, "两人都没有赴约")
+                continue
+            record["status"] = "honored" if not absent else "broken"
+            for agent_id in arrived:
+                arrived_agent = self._find_agent_by_id(agent_id)
+                if arrived_agent is None:
+                    continue
+                for other_id in record["participants"]:
+                    if other_id == agent_id:
+                        continue
+                    other = self._find_agent_by_id(other_id)
+                    if other is None:
+                        continue
+                    if other_id in arrived:
+                        await self.relationship_store.record_interaction(
+                            agent_id, other_id, f"如约在{venue_name}{record['activity']}",
+                            valence=0.5, affinity_delta=0.3, trust_delta=0.4,
+                            sim_time=sim_time, interaction_id=record["id"],
+                        )
+                        continue
+                    await self.relationship_store.record_interaction(
+                        agent_id, other_id, f"对方没有赴约（{venue_name}）",
+                        valence=-0.6, tag="失信", affinity_delta=-0.4, trust_delta=-0.8,
+                        sim_time=sim_time, interaction_id=record["id"],
+                    )
+                    await self.memory.add(
+                        agent_id, record["venue"],
+                        f"我按约定去{venue_name}{record['activity']}，{other.name}没有来。",
+                        "observation", 7, sim_time=sim_time, participants=[other_id],
+                        emotion="消极", event_type="appointment_broken", tier="episodic",
+                        fact_summary=f"{other.name}没有赴约",
+                        interpretation=f"{other.name}答应的事没有做到",
+                        formation_score=0.7, source_ids=[record["id"]],
+                    )
+                    await self.memory.add(
+                        other_id, record["venue"],
+                        f"我本来和{arrived_agent.name}约好去{venue_name}{record['activity']}，但我没有去。",
+                        "observation", 5, sim_time=sim_time, participants=[agent_id],
+                        emotion="消极", event_type="appointment_missed", tier="working",
+                        fact_summary=f"我没有赴{arrived_agent.name}的约",
+                        interpretation="我失约了", formation_score=0.5,
+                        source_ids=[record["id"]],
+                    )
+            for agent_id in absent:
+                self._close_appointment_task(record, agent_id, "没有赴约")
+            await self._record_fact(
+                self._find_agent_by_id(arrived[0]) or self.agents[0],
+                "appointment_honored" if not absent else "appointment_broken",
+                record["venue"],
+                {"appointment_id": record["id"], "activity": record["activity"],
+                 "arrived": arrived, "absent": absent},
+                participants=[aid for aid in record["participants"] if aid != arrived[0]],
+                source_ids=[record["id"]],
+            )
+            events.append(self._make_event({
+                "type": "appointment_result",
+                "agentIds": list(record["participants"]),
+                "location": record["venue"],
+                "content": (
+                    f"{'、'.join(record['participants'][aid]['name'] for aid in arrived)}"
+                    f"在{venue_name}{record['activity']}"
+                    + (f"，{'、'.join(record['participants'][aid]['name'] for aid in absent)}没有来"
+                       if absent else "，如约见面")
+                ),
+                "cause": "appointment_" + record["status"],
+            }))
+        return events
+
+    def _close_appointment_task(self, record: dict, agent_id: str, reason: str) -> None:
+        self.tasks.block(f"appointment:{record['id']}:{agent_id}", reason)
 
     async def _start_interaction(self, agent: Agent, action: dict,
                                  expected_effects: list[dict]) -> InteractionRecord:
@@ -1793,8 +2068,8 @@ class SimulationEngine:
         if (
             location == "in_transit"
             or target.state.current_location != location
-            or initiator.state.status != "IDLE"
-            or target.state.status != "IDLE"
+            or not self._open_to_talk(initiator)
+            or not self._open_to_talk(target)
             or initiator.id in self.dialogue.participant_ids()
             or target.id in self.dialogue.participant_ids()
         ):
