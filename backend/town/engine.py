@@ -1124,11 +1124,17 @@ class SimulationEngine:
         if meeting_at is None:
             return False, "时间无效（只能是今天或明天，6:00-22:00 之间，且要留出准备时间）"
         activity = str(proposal.get("activity", "")).strip()[:20] or "碰面"
-        slot_minutes = meeting_at % 1440
-        for agent in (speaker, partner):
-            slot = agent._get_schedule_item(slot_minutes // 60, slot_minutes % 60)
-            if slot is not None and not slot.is_flexible_slot:
-                return False, f"{agent.name}那个时间已经有固定安排（{slot.activity or slot.label}）"
+        # The promise has to fit the day, not just its first minute: a meeting
+        # that runs into a shift is exactly the kind that gets broken later.
+        for offset_minutes in (0, config.APPOINTMENT_LENGTH_MINUTES):
+            slot_minutes = (meeting_at + offset_minutes) % 1440
+            for agent in (speaker, partner):
+                slot = agent._get_schedule_item(slot_minutes // 60, slot_minutes % 60)
+                if slot is not None and not slot.is_flexible_slot:
+                    return False, (
+                        f"{agent.name}那个时间已经有固定安排（{slot.activity or slot.label}），"
+                        f"换一个双方都空的时间"
+                    )
         for agent in (speaker, partner):
             if len(self._open_appointments(agent.id)) >= config.APPOINTMENT_MAX_PENDING_PER_AGENT:
                 return False, f"{agent.name}已经有好几个约定了"
@@ -1157,12 +1163,10 @@ class SimulationEngine:
                 source="appointment",
                 location_id=venue,
                 interaction_type="wait",
-                duration_minutes=30,
+                duration_minutes=config.APPOINTMENT_LENGTH_MINUTES,
                 earliest_at=meeting_at - config.APPOINTMENT_MIN_LEAD_MINUTES,
                 deadline_at=meeting_at + config.APPOINTMENT_GRACE_MINUTES,
-                # Below an urgent need, above idle routine: promises are kept
-                # unless something real gets in the way, which is the point.
-                priority=0.88,
+                priority=config.APPOINTMENT_TASK_PRIORITY,
                 payload={
                     "appointment_id": appointment_id,
                     "partner_id": other.id,

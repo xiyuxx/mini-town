@@ -19,7 +19,7 @@ DIALOGUE_SYSTEM_PROMPT = """你是当前世界中的角色，正在和{others}�
 背景资料仅决定说话风格；推测必须用“好像、看起来、也许”等不确定表达。
 不补写不存在的动作、过去、年份、年龄、病情或共同经历。
 调用 dialogue_reply：content 为1-3句口语；action 为 continue 或 end；同时提交mental_update和referenced_fact_ids。
-如果聊到要一起做某件事，可以填 appointment：约好的人名、0或1（0=今天，1=明天）、小时、分钟、地点、做什么。地点只能从"可约的地点"里选，时间要留出准备时间。不确定就不要填。"""
+要约定见面时，先看"我的日程"：只能挑自己确实空着的时间（避开标了固定=true 的安排），地点只能从"可约的地点"里选。已经答应的事要办到，只有更紧急的突发情况才可以不去。不确定能不能去就不要约定。"""
 
 DIALOGUE_REPLY_TOOL_DEF = {
     "function": {
@@ -225,11 +225,21 @@ class DialogueManager:
             for loc in LOCATIONS if loc.access.get("mode", "public") == "public"
         ]
         now_minutes = (sim_timestamp(sim_time) or 0) % 1440
-        my_day = [
-            {"time": f"{item.hour:02d}:{item.minute:02d}", "what": item.activity or item.label}
-            for item in speaker.schedule
-            if item.start_minutes >= now_minutes
-        ][:6]
+        my_day = {
+            "今天剩下的安排": [
+                {"time": f"{item.hour:02d}:{item.minute:02d}",
+                 "what": item.activity or item.label,
+                 "固定": not item.is_flexible_slot}
+                for item in speaker.schedule
+                if item.start_minutes >= now_minutes
+            ][:6],
+            "明天的安排": [
+                {"time": f"{item.hour:02d}:{item.minute:02d}",
+                 "what": item.activity or item.label,
+                 "固定": not item.is_flexible_slot}
+                for item in speaker.schedule
+            ][:8],
+        }
         known_facts = []
         shareable_facts = []
         if self.fact_ledger is not None:

@@ -91,7 +91,14 @@ class Config:
     # agent can be carrying at once.
     APPOINTMENT_MIN_LEAD_MINUTES: int = int(os.getenv("APPOINTMENT_MIN_LEAD_MINUTES", "20"))
     APPOINTMENT_GRACE_MINUTES: int = int(os.getenv("APPOINTMENT_GRACE_MINUTES", "20"))
+    # How long the two are expected to stay together once they meet.
+    APPOINTMENT_LENGTH_MINUTES: int = int(os.getenv("APPOINTMENT_LENGTH_MINUTES", "30"))
     APPOINTMENT_MAX_PENDING_PER_AGENT: int = int(os.getenv("APPOINTMENT_MAX_PENDING_PER_AGENT", "3"))
+    # A promise made for a slot the agent was free in outranks ordinary duties,
+    # including the whole schedule board. Only an urgent need (hunger, energy)
+    # or being physically unable may break it — that is the whole point of
+    # asking the model to check its day before agreeing.
+    APPOINTMENT_TASK_PRIORITY: float = float(os.getenv("APPOINTMENT_TASK_PRIORITY", "1.15"))
     # How long a pair must stay away from an existing arrangement before they can
     # promise each other the same slot again.
     APPOINTMENT_CONFLICT_MINUTES: int = int(os.getenv("APPOINTMENT_CONFLICT_MINUTES", "60"))
