@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from .memory import memories_to_text
 from .environment import view as environment_view
 from .sim_time import sim_timestamp
-from .cognition import InteractionContext
+from .cognition import Belief, InteractionContext
 from .world import LOCATIONS
 from .world_pack import DEFAULT_WORLD
 
@@ -162,6 +162,14 @@ class DialogueManager:
                     "source_fact_ids": valid_refs,
                 })
                 mental_update["belief_updates"] = updates
+                # What the speaker could not support is not fact for anybody who
+                # heard it: it enters their state as something heard, with who
+                # said it, and it is they who decide whether to believe it.
+                for listener in others:
+                    listener.mental_state.add_belief(Belief(
+                        proposition=reply[:240], confidence=0.35, status="reported",
+                        learned_at=now, last_confirmed_at=now, source_fact_ids=[],
+                    ))
             # Saying something out loud is how the listener comes to know it.
             for fact in self.fact_ledger.share(referenced_fact_ids, [p.id for p in others]):
                 await trace.log(
