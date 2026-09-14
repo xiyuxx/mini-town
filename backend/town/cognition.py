@@ -647,6 +647,12 @@ class MentalState:
             "emotion": asdict(self.emotion),
             "attention": self.attention[:5],
             "life_plan": plan,
+            # Task-specific views are filtered afterwards, but every task type
+            # may look up who the agent has just been with, so the key must
+            # exist even when the caller does not use it.
+            "recent_interactions": {
+                key: asdict(value) for key, value in list(self.recent_interactions.items())[-4:]
+            },
         }
         if task_type in {"action_decision", "dialogue", "reflection"}:
             result["beliefs"] = [
@@ -656,9 +662,6 @@ class MentalState:
         if task_type in {"action_decision", "dialogue", "reflection"}:
             result["recent_outcomes"] = [asdict(item) for item in self.outcomes[-outcome_limit:]]
         if task_type in {"action_decision", "dialogue"}:
-            result["recent_interactions"] = {
-                key: asdict(value) for key, value in list(self.recent_interactions.items())[-4:]
-            }
             result["last_decision"] = self.last_decision
         return result
 

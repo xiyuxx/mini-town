@@ -18,7 +18,7 @@ def test_idle_agents_in_same_location_can_start_dialogue_without_same_cell(tmp_p
         first.state.x, first.state.y = 9, 8
         second.state.x, second.state.y = 12, 9
         await engine._update_colocation(engine.get_sim_time_str())
-        engine._queue_colocated_dialogues()
+        await engine._queue_colocated_dialogues()
         events = await engine._run_group_dialogues(engine.get_sim_time_str())
         assert any(event["type"] == "dialogue_start" for event in events)
         relationship = await engine.relationship_store.get(first.id, second.id)

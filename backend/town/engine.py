@@ -144,6 +144,12 @@ class SimulationEngine:
         self._active_encounter_pairs: set[tuple[str, str]] = set()
         self._active_colocation_groups: dict[str, tuple[str, ...]] = {}
 
+        # ── Conversation pacing / who talks to whom ──
+        self._pair_last_talk: dict[tuple[str, str], int] = {}
+        self._pair_last_greeting: dict[tuple[str, str], int] = {}
+        self._agent_dialogue_day: dict[str, tuple[int, int]] = {}
+        self._talk_bonus_cache: dict[tuple[str, str], float] = {}
+
     # ═══════════════════════════════════════════════════════════════
     # Engine as engine_ref
     #
@@ -396,6 +402,10 @@ class SimulationEngine:
         self._dialogue_intents.clear()
         self._interactions.clear()
         self._encountered_pairs.clear()
+        self._pair_last_talk.clear()
+        self._pair_last_greeting.clear()
+        self._agent_dialogue_day.clear()
+        self._talk_bonus_cache.clear()
         self._active_encounter_pairs.clear()
         self._active_colocation_groups.clear()
         self._day_just_changed = False
@@ -701,6 +711,7 @@ class SimulationEngine:
 
         self._encountered_pairs = set(self._active_encounter_pairs)
         all_events.extend(await self._advance_dialogues_realtime(sim_time_str))
+        await self._queue_colocated_dialogues()
         all_events.extend(await self._detect_encounters(sim_time_str))
         all_events.extend(await self._run_group_dialogues(sim_time_str))
         await self._persist_cognition()
@@ -945,14 +956,85 @@ class SimulationEngine:
             await self.relationship_store.record_colocation(list(group))
         self._active_colocation_groups = current_groups
 
-    def _queue_colocated_dialogues(self) -> None:
-        """Allow one idle pair sharing a social space to start a conversation."""
+    async def _queue_colocated_dialogues(self) -> None:
+        """Let the most worthwhile idle pair at each shared place start talking."""
         for location, group in self._active_colocation_groups.items():
-            participants = [self._find_agent_by_id(agent_id) for agent_id in group]
-            idle = [agent for agent in participants if agent and agent.state.status == "IDLE"]
+            if self.dialogue.get_active_at_location(location):
+                continue
+            idle = [
+                agent
+                for agent in (self._find_agent_by_id(agent_id) for agent_id in group)
+                if agent is not None
+                and agent.state.status == "IDLE"
+                and agent.state.current_location == location
+            ]
             if len(idle) < 2:
                 continue
-            self._queue_encounter_dialogue(idle[0], idle[1])
+            pair = await self._select_dialogue_pair(idle)
+            if pair:
+                self._queue_encounter_dialogue(*pair)
+
+    def _may_start_talk(self, first: Agent, second: Agent) -> bool:
+        """Pacing gates: a pair may not monopolise each other or the day."""
+        pair = tuple(sorted((first.id, second.id)))
+        last = self._pair_last_talk.get(pair)
+        if last is not None and self.get_sim_timestamp() - last < config.DIALOGUE_PAIR_COOLDOWN_MINUTES:
+            return False
+        for agent in (first, second):
+            day, count = self._agent_dialogue_day.get(agent.id, (self.day, 0))
+            if day == self.day and count >= config.DIALOGUE_MAX_PER_AGENT_PER_DAY:
+                return False
+        return True
+
+    async def _dialogue_pair_score(self, first: Agent, second: Agent) -> float:
+        """Higher is better. Novelty dominates, so the town keeps meeting new
+        people instead of settling on one inseparable pair."""
+        pair = tuple(sorted((first.id, second.id)))
+        last = self._pair_last_talk.get(pair)
+        novelty = (
+            1.0 if last is None
+            else min(1.0, (self.get_sim_timestamp() - last) / (24 * 60))
+        )
+        need = (first.social_urgency() + second.social_urgency()) / 2
+        same_cell = 0.35 if (first.state.x, first.state.y) == (second.state.x, second.state.y) else 0.0
+        free_time = 0.25 if self._in_flexible_slot(first) and self._in_flexible_slot(second) else 0.0
+        rapport = await self._talk_bonus(pair)
+        return novelty + need + same_cell + free_time + rapport + random.uniform(0.0, 0.05)
+
+    async def _select_dialogue_pair(self, idle: list[Agent]) -> tuple[Agent, Agent] | None:
+        """Pick the pair most worth putting together out of everyone present."""
+        best: tuple[float, Agent, Agent] | None = None
+        for index, first in enumerate(idle):
+            for second in idle[index + 1:]:
+                if not self._may_start_talk(first, second):
+                    continue
+                score = await self._dialogue_pair_score(first, second)
+                if best is None or score > best[0]:
+                    best = (score, first, second)
+        return (best[1], best[2]) if best else None
+
+    async def _talk_bonus(self, pair: tuple[str, str]) -> float:
+        """Rapport from stored relationship state, cached until the pair talks."""
+        if pair not in self._talk_bonus_cache:
+            modifier = await self.relationship_store.get_behavior_modifier(*pair)
+            self._talk_bonus_cache[pair] = float(modifier.get("talk_probability_bonus", 0.0))
+        return self._talk_bonus_cache[pair]
+
+    def _in_flexible_slot(self, agent: Agent) -> bool:
+        slot = agent._get_schedule_item(self.hour, self.minute)
+        return bool(slot and slot.is_flexible_slot)
+
+    def _register_dialogue_start(self, participant_ids: list[str]) -> None:
+        """Charge the day's budget and open the cooldown for everyone involved."""
+        now = self.get_sim_timestamp()
+        for agent_id in participant_ids:
+            day, count = self._agent_dialogue_day.get(agent_id, (self.day, 0))
+            self._agent_dialogue_day[agent_id] = (self.day, count + 1 if day == self.day else 1)
+        for index, first in enumerate(participant_ids):
+            for second in participant_ids[index + 1:]:
+                pair = tuple(sorted((first, second)))
+                self._pair_last_talk[pair] = now
+                self._talk_bonus_cache.pop(pair, None)
 
     async def _start_interaction(self, agent: Agent, action: dict,
                                  expected_effects: list[dict]) -> InteractionRecord:
@@ -1130,7 +1212,8 @@ class SimulationEngine:
                     fact_id=arrival_fact.id,
                 )
             return events
-        return []
+        passing = self._check_moving_encounter(agent)
+        return [self._make_event(passing)] if passing else []
 
     async def _process_acting(self, agent: Agent, sim_time_str: str) -> list[dict]:
         if agent._activity_ticks <= 0:
@@ -1525,10 +1608,11 @@ class SimulationEngine:
             return []
 
     def _check_moving_encounter(self, agent: Agent) -> dict | None:
-        """Check if this MOVING agent is at the same cell as another MOVING agent.
+        """Report two agents crossing paths on the road.
 
-        Returns an encounter event dict if found, None otherwise.
-        Duplicate pairs (already reported) are skipped via _encountered_pairs.
+        Greeting a passer-by costs nothing but must not repeat every tick while
+        two agents happen to travel the same route, so each pair has its own
+        cooldown.
         """
         ax, ay = agent.state.x, agent.state.y
         for other in self.agents:
@@ -1538,9 +1622,13 @@ class SimulationEngine:
                 continue
             if other.state.x == ax and other.state.y == ay:
                 pair = tuple(sorted([agent.id, other.id]))
-                if pair in self._encountered_pairs:
+                last = self._pair_last_greeting.get(pair)
+                if (
+                    last is not None
+                    and self.get_sim_timestamp() - last < config.DIALOGUE_PAIR_COOLDOWN_MINUTES
+                ):
                     continue
-                self._encountered_pairs.add(pair)
+                self._pair_last_greeting[pair] = self.get_sim_timestamp()
                 return {
                     "id": f"evt_{uuid.uuid4().hex[:8]}",
                     "time": f"{self.hour:02d}:{self.minute:02d}",
@@ -1578,7 +1666,6 @@ class SimulationEngine:
                         "location": a.state.current_location,
                         "content": f"{a.name}和{b.name}相遇",
                     }))
-                    self._queue_encounter_dialogue(a, b)
         self._active_encounter_pairs = current_pairs
         return events
 
@@ -1839,6 +1926,7 @@ class SimulationEngine:
                     None,
                 )
                 if dialogue_start:
+                    self._register_dialogue_start([item.id for item in participants])
                     dialogue_id = str(dialogue_start.get("dialogueId", ""))
                     self._interactions[dialogue_id] = InteractionRecord(
                         id=dialogue_id,

@@ -74,5 +74,13 @@ class Config:
     RELATIONSHIP_AFFINITY_NEGATIVE_INCREMENT: float = -0.3
     MAX_ANCHORS_PER_RELATIONSHIP: int = 10
 
+    # ── Conversation pacing ──
+    # The same two agents stay quiet with each other inside this window, and no
+    # agent opens more than this many conversations per simulated day. Without
+    # them the most available pair talks to each other all day and the town's
+    # conversation budget never reaches the rest of the roster.
+    DIALOGUE_PAIR_COOLDOWN_MINUTES: int = int(os.getenv("DIALOGUE_PAIR_COOLDOWN_MINUTES", "60"))
+    DIALOGUE_MAX_PER_AGENT_PER_DAY: int = int(os.getenv("DIALOGUE_MAX_PER_AGENT_PER_DAY", "6"))
+
 
 config = Config()

@@ -1,5 +1,8 @@
 import asyncio
+import json
+from collections import Counter
 
+from backend.config import config
 from backend.town.cognition import DecisionProposal, LifePlan, PlanStep
 from backend.town.engine import SimulationEngine
 from backend.town.experience import ExperienceEvent, MemoryCandidate
@@ -7,6 +10,28 @@ from backend.town.experience import ExperienceEvent, MemoryCandidate
 
 def run(coro):
     return asyncio.run(coro)
+
+
+async def settle_realtime(engine):
+    """Let deferred realtime work finish, as the 6-second tick budget would."""
+    for _ in range(6):
+        await asyncio.sleep(0)
+    pending = [task for _, task in engine._dialogue_turn_tasks.values() if not task.done()]
+    pending += [task for task in engine._background_tasks if not task.done()]
+    if pending:
+        await asyncio.wait(pending, timeout=5)
+
+
+async def park_idle_agents(engine, count):
+    """Put the first `count` agents in the park, idle, on separate cells."""
+    chosen = engine.agents[:count]
+    engine.agents = list(chosen)
+    engine.routine_planner.next_action = lambda _agent, _engine: None
+    for index, agent in enumerate(chosen):
+        agent.state.current_location = "park"
+        agent.state.x, agent.state.y = 9 + index, 8
+        agent.state.status = "IDLE"
+    return chosen
 
 
 async def make_engine(tmp_path):
@@ -545,12 +570,147 @@ def test_new_idle_encounter_starts_a_bounded_dialogue(tmp_path):
         first.state.y = second.state.y = 8
         first.state.status = second.state.status = "IDLE"
 
-        events = await engine._detect_encounters(engine.get_sim_time_str())
-        dialogue_events = await engine._run_group_dialogues(engine.get_sim_time_str())
+        sim_time = engine.get_sim_time_str()
+        events = await engine._detect_encounters(sim_time)
+        await engine._update_colocation(sim_time)
+        await engine._queue_colocated_dialogues()
+        dialogue_events = await engine._run_group_dialogues(sim_time)
 
         assert any(event["type"] == "encounter" for event in events)
         assert any(event["type"] == "dialogue_start" for event in dialogue_events)
         assert engine.dialogue.participant_ids() == {first.id, second.id}
+
+    run(scenario())
+
+
+def test_realtime_shared_place_starts_a_dialogue_without_sharing_a_cell(tmp_path):
+    """An idle pair in the same place must not need the exact same cell.
+
+    Only the same-cell trigger used to run in realtime, so a shared place never
+    turned into a conversation (0 dialogues in two simulated days).
+    """
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        engine._realtime_llm = True
+        first, second = await park_idle_agents(engine, 2)
+        second.state.x, second.state.y = 10, 9
+
+        await engine.tick()
+
+        assert engine.dialogue.participant_ids() == {first.id, second.id}
+
+    run(scenario())
+
+
+def test_dialogue_pacing_avoids_the_pair_that_just_talked(tmp_path):
+    """Selection must reach agents who have not talked, not the same pair."""
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        engine._realtime_llm = True
+        first, second, third = await park_idle_agents(engine, 3)
+        engine._pair_last_talk[tuple(sorted((first.id, second.id)))] = engine.get_sim_timestamp()
+
+        await engine.tick()
+
+        talking = engine.dialogue.participant_ids()
+        assert third.id in talking
+        assert {first.id, second.id} != talking
+
+    run(scenario())
+
+
+def test_dialogue_cooldown_stops_an_immediate_repeat(tmp_path):
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        engine._realtime_llm = True
+        first, second = await park_idle_agents(engine, 2)
+        await engine.tick()
+        assert engine.dialogue.participant_ids() == {first.id, second.id}
+
+        for _ in range(30):
+            await engine.tick()
+            await settle_realtime(engine)
+            if not engine.dialogue._active_dialogues:
+                break
+        assert not engine.dialogue._active_dialogues
+        sessions = len(await engine.dialogue_store.list_recent(limit=50))
+
+        for _ in range(5):
+            await engine.tick()
+            await settle_realtime(engine)
+
+        assert len(await engine.dialogue_store.list_recent(limit=50)) == sessions
+
+    run(scenario())
+
+
+def test_agent_daily_dialogue_budget_caps_the_day(tmp_path, monkeypatch):
+    async def scenario():
+        monkeypatch.setattr(config, "DIALOGUE_PAIR_COOLDOWN_MINUTES", 0)
+        monkeypatch.setattr(config, "DIALOGUE_MAX_PER_AGENT_PER_DAY", 1)
+        engine = await make_engine(tmp_path)
+        engine._realtime_llm = True
+        first, second = await park_idle_agents(engine, 2)
+
+        for _ in range(60):
+            await engine.tick()
+            await settle_realtime(engine)
+
+        started = Counter()
+        for session in await engine.dialogue_store.list_recent(limit=100):
+            members = session["participants"]
+            members = json.loads(members) if isinstance(members, str) else members
+            started.update(members)
+        assert started[first.id] == 1
+        assert started[second.id] == 1
+
+    run(scenario())
+
+
+def test_travelling_together_is_greeted_once(tmp_path):
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        first, second = engine.agents[:2]
+        engine.agents = [first, second]
+        for agent in (first, second):
+            agent.state.current_location = "in_transit"
+            agent.state.status = "MOVING"
+            agent.state.x, agent.state.y = 8, 7
+            agent._movement_path = [(9, 8), (10, 9), (11, 9), (12, 9), (13, 9), (14, 9)]
+        sim_time = engine.get_sim_time_str()
+
+        await engine._process_moving(first, sim_time)
+        events = await engine._process_moving(second, sim_time)
+        assert [event["type"] for event in events] == ["encounter"]
+
+        await engine._process_moving(first, sim_time)
+        assert await engine._process_moving(second, sim_time) == []
+
+    run(scenario())
+
+
+def test_planning_context_survives_company_nearby(tmp_path):
+    """Planning must not fail just because another agent is in the same place.
+
+    The summary omitted recent_interactions for every task type except
+    action_decision/dialogue, and the shared context builder subscripts that key
+    over nearby agents — so live planning raised KeyError exactly when company
+    was present, which is when social plans would be made.
+    """
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        first, second = engine.agents[:2]
+        engine.agents = [first, second]
+        for agent in (first, second):
+            agent.state.current_location = "park"
+            agent.state.x, agent.state.y = 9, 8
+            agent.state.status = "IDLE"
+
+        for task_type in ("life_plan", "intention_proposal", "routine_selection", "reflection"):
+            context = await first.build_planning_context(
+                engine.get_sim_time_str(), engine, task_type=task_type,
+            )
+            assert "recent_interactions" in context["mental_state"]
 
     run(scenario())
 
@@ -565,23 +725,13 @@ def test_finished_realtime_dialogue_releases_both_speakers(tmp_path):
     async def scenario():
         engine = await make_engine(tmp_path)
         engine._realtime_llm = True
-        engine.routine_planner.next_action = lambda _agent, _engine: None
-        first, second = engine.agents[:2]
-        engine.agents = [first, second]
-        first.state.current_location = second.state.current_location = "park"
-        first.state.x = second.state.x = 9
-        first.state.y = second.state.y = 8
-        first.state.status = second.state.status = "IDLE"
+        first, second = await park_idle_agents(engine, 2)
 
         session_id = ""
         settled_after_end = 0
         for _ in range(30):
             await engine.tick()
-            for _ in range(6):
-                await asyncio.sleep(0)
-            pending = [task for _, task in engine._dialogue_turn_tasks.values() if not task.done()]
-            if pending:
-                await asyncio.wait(pending, timeout=5)
+            await settle_realtime(engine)
             if engine.dialogue._active_dialogues:
                 session_id = next(iter(engine.dialogue._active_dialogues.values())).id
                 settled_after_end = 0

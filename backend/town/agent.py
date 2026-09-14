@@ -352,6 +352,10 @@ class Agent:
         self._interrupted_activity = None
         return True
 
+    def social_urgency(self) -> float:
+        """0 when the agent has had enough company, 1 when it is starved for it."""
+        return round(max(0.0, 35.0 - float(self.state.needs.get("social", 0))) / 35.0, 2)
+
     def reset_commitments_for_new_day(self):
         self._commitment_status.clear()
 
@@ -613,7 +617,7 @@ class Agent:
         need_context = {
             "energy": {"value": needs.get("energy", 0), "urgency": round(max(0, 25 - needs.get("energy", 0)) / 25, 2)},
             "hunger": {"value": needs.get("hunger", 0), "urgency": round(max(0, needs.get("hunger", 0) - 55) / 45, 2)},
-            "social": {"value": needs.get("social", 0), "urgency": round(max(0, 35 - needs.get("social", 0)) / 35, 2)},
+            "social": {"value": needs.get("social", 0), "urgency": self.social_urgency()},
         }
 
         mobility_context = None
