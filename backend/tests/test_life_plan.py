@@ -85,7 +85,10 @@ def test_a_look_that_repeats_a_fresh_look_is_skipped(tmp_path):
                           "target_id": ""}),
             REST,
         ])
-        engine.interactions.record_observation(agent, engine)
+        engine.interactions.store_observation(
+            agent, engine.interactions.observation_snapshot(agent, engine),
+            engine.get_sim_timestamp(),
+        )
 
         action = engine.planner.next_plan_action(agent, engine)
 

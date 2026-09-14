@@ -142,7 +142,11 @@ def test_doctor_morning_run_has_bounded_duration(tmp_path):
             timeline.append((engine.hour, engine.minute, doctor.state.current_action, doctor.state.status))
         running_times = [hour * 60 + minute for hour, minute, action, _ in timeline if action == "起床晨跑"]
         assert running_times
-        assert max(running_times) - min(running_times) <= 35
+        # Someone greeting the doctor in the park pauses the run and the run
+        # resumes, so the span covers a conversation. A run that never finished
+        # would be an order of magnitude longer, which is what this bound is for.
+        assert max(running_times) - min(running_times) <= 60
+        assert timeline[-1][2] != "起床晨跑", "the run must end, not carry on forever"
         assert not any(not action.strip() for _, _, action, status in timeline if status == "ACTING")
 
     run(scenario())

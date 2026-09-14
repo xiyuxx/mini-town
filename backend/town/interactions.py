@@ -672,7 +672,7 @@ class InteractionEngine:
                 snapshot = dict(effect.get("snapshot", {}))
                 if snapshot:
                     observed_at = int(sim_timestamp if sim_timestamp is not None else effect.get("observed_at", 0))
-                    self._store_observation(agent, snapshot, observed_at)
+                    self.store_observation(agent, snapshot, observed_at)
                     effect["observed_at"] = observed_at
             elif effect_type == "social_interaction":
                 # Talking to someone is what satisfies the social need; without
@@ -731,22 +731,12 @@ class InteractionEngine:
         current = self.observation_snapshot(agent, engine, target_id)
         return previous.get("signature") == current.get("signature")
 
-    def _store_observation(self, agent, snapshot: dict, sim_timestamp: int) -> dict:
+    def store_observation(self, agent, snapshot: dict, sim_timestamp: int) -> dict:
+        """The one writer of what an agent has seen: keeping one shape in one place
+        is what stops a prompt from being handed ids the world does not have."""
         record = {**snapshot, "observed_at": int(sim_timestamp)}
         agent._last_observation = record
         return record
-
-    def record_observation(self, agent, engine, target_id: str = "") -> dict:
-        """Write down what this agent can see, here and now.
-
-        Seeing the room it just walked into is bookkeeping, not a decision, so
-        the engine does it. ``inspect`` remains the deliberate act of looking at
-        something in particular.
-        """
-        return self._store_observation(
-            agent, self.observation_snapshot(agent, engine, target_id),
-            engine.get_sim_timestamp(),
-        )
 
     def service_needs_a_look(self, agent, location: str, resource, engine) -> bool:
         """True when ordering this item would be refused for lack of a fresh look.

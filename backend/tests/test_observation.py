@@ -77,17 +77,35 @@ def test_standing_still_does_not_make_the_room_go_stale(tmp_path):
     run(scenario())
 
 
-def test_a_fresh_record_is_left_alone(tmp_path):
-    """Refreshing is not free, so it happens on arrival, on change, and on a clock."""
+def test_a_view_that_did_not_move_is_not_rewritten(tmp_path):
+    """Change detection must not decay into writing the same thing every tick."""
     async def scenario():
         engine = await make_engine(tmp_path)
         agent = place(engine, "wang", "cafe")
-        await engine.tick()
-        fresh = agent._last_observation["observed_at"]
 
+        engine._refresh_observations()      # nothing changed since the last look
+        settled = agent._last_observation["observed_at"]
+        engine._refresh_observations()
+
+        assert agent._last_observation["observed_at"] == settled
+
+    run(scenario())
+
+
+def test_a_change_in_the_room_is_seen_at_once(tmp_path):
+    """Somebody walking in is a change, and it must not wait for the clock."""
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        agent = place(engine, "wang", "cafe")
+        newcomer = place(engine, "mei", "park")
+        await engine.tick()
+        before = agent._last_observation["signature"]
+
+        newcomer.state.current_location = "cafe"
         await engine.tick()
 
-        assert agent._last_observation["observed_at"] == fresh
+        assert agent._last_observation["signature"] != before
+        assert [item["id"] for item in agent._last_observation["nearby_agents"]] == ["mei"]
 
     run(scenario())
 

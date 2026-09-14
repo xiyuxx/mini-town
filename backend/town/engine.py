@@ -790,22 +790,29 @@ class SimulationEngine:
     def _refresh_observations(self) -> None:
         """Keep every agent's view of its surroundings current, for free.
 
-        Walking into a room is seeing it, and standing in one keeps seeing it.
-        Only agents in transit are skipped: they perceive the road as they walk
-        and have not arrived anywhere yet.
+        Walking into a room is seeing it, standing in one keeps seeing it, and a
+        room that changes is seen to change. A snapshot costs about ten
+        microseconds, so the town can afford to look every tick and write only
+        when the view actually moved. Agents in transit are skipped: they
+        perceive the road as they walk and have not arrived anywhere yet.
         """
         now = self.get_sim_timestamp()
         for agent in self.agents:
             if agent.state.status == "MOVING":
                 continue
             record = agent._last_observation
-            if (
+            current = (
                 isinstance(record, dict)
                 and record.get("location") == agent.state.current_location
-                and now - int(record.get("observed_at", -10 ** 9)) < config.OBSERVATION_REFRESH_MINUTES
-            ):
+            )
+            held = current and (
+                now - int(record.get("observed_at", -10 ** 9))
+                < config.OBSERVATION_REFRESH_MINUTES
+            )
+            snapshot = self.interactions.observation_snapshot(agent, self)
+            if held and record.get("signature") == snapshot.get("signature"):
                 continue
-            self.interactions.record_observation(agent, self)
+            self.interactions.store_observation(agent, snapshot, now)
 
     async def tick(self):
         """One simulation tick.
@@ -979,7 +986,7 @@ class SimulationEngine:
         self._encountered_pairs = set(self._active_encounter_pairs)
         existing_dialogue_events = await self._advance_dialogues(sim_time_str)
         all_events.extend(existing_dialogue_events)
-        self._queue_colocated_dialogues()
+        await self._queue_colocated_dialogues()
         encounter_events = await self._detect_encounters(sim_time_str)
         all_events.extend(encounter_events)
         dialogue_events = await self._run_group_dialogues(sim_time_str)
