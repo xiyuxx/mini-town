@@ -4,6 +4,7 @@ import random
 from dataclasses import dataclass, field
 
 from .memory import memories_to_text
+from .environment import view as environment_view
 from .sim_time import sim_timestamp
 from .cognition import InteractionContext
 from .world import LOCATIONS
@@ -208,28 +209,26 @@ class DialogueManager:
         when it was last seen. Ids are left out — a person does not say the id
         of the machine they are standing next to.
         """
-        record = getattr(speaker, "_last_observation", None)
-        if not isinstance(record, dict):
-            view = {"这里": speaker.state.current_location, "在场的人": {}, "看到的时间": "还没看清"}
-        else:
-            here = {str(item.get("id", "")): item for item in record.get("nearby_agents", [])}
-            view = {
-                "这里": record.get("location", speaker.state.current_location),
-                "在场的人": {
-                    other.name: {
-                        "在做什么": here.get(other.id, {}).get("action") or other.state.current_action,
-                        "状态": here.get(other.id, {}).get("status") or other.state.status,
-                    }
-                    for other in others
-                },
-                "看得见的东西": [
-                    {"名称": item.get("name") or item.get("kind", ""), "类别": item.get("kind", "")}
-                    for item in record.get("entities", [])
-                ][:8],
-                "天气": record.get("weather", {}),
-                "看到的时间": record.get("observed_at", ""),
-            }
-        return view
+        seen = environment_view(getattr(speaker, "_last_observation", None), "dialogue")
+        if not seen:
+            return {"这里": speaker.state.current_location, "在场的人": {}, "看到的时间": "还没看清"}
+        here = {str(item.get("id", "")): item for item in seen.get("nearby_agents", [])}
+        return {
+            "这里": seen.get("location", speaker.state.current_location),
+            "在场的人": {
+                other.name: {
+                    "在做什么": here.get(other.id, {}).get("action") or other.state.current_action,
+                    "状态": here.get(other.id, {}).get("status") or other.state.status,
+                }
+                for other in others
+            },
+            "看得见的东西": [
+                {"名称": item.get("name") or item.get("kind", ""), "类别": item.get("kind", "")}
+                for item in seen.get("entities", [])
+            ][:8],
+            "天气": seen.get("weather", {}),
+            "看到的时间": seen.get("observed_at", ""),
+        }
 
     async def _generate_reply(self, session, speaker, others, trace, sim_time):
         if self.llm.fallback:

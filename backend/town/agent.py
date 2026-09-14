@@ -10,6 +10,7 @@ from .world import (
     location_affordances, travel_cost, can_enter, GRID, GRID_W, GRID_H,
 )
 from .llm import LLMProvider
+from .environment import view as environment_view
 from .embedding import similarity_gates
 from .memory import MemoryStore, memories_to_text, auto_importance
 from .tools_full import make_registry_for
@@ -717,7 +718,7 @@ class Agent:
             "daily_plan": self.daily_plan.to_dict() if self.daily_plan else None,
             "routine_blocks": [block.to_dict() for block in self.routine_blocks],
             "known_facts": known_facts,
-            "recent_observation": dict(self._last_observation) if self._last_observation else None,
+            "recent_observation": environment_view(self._last_observation, "planning"),
             "recent_interactions": recent_interactions,
             "relevant_memories": mem_text,
             "open_loops": open_loop_text,
