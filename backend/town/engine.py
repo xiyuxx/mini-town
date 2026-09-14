@@ -787,6 +787,26 @@ class SimulationEngine:
         await self._persist_cognition()
         await self.broadcast(all_events)
 
+    def _refresh_observations(self) -> None:
+        """Keep every agent's view of its surroundings current, for free.
+
+        Walking into a room is seeing it, and standing in one keeps seeing it.
+        Only agents in transit are skipped: they perceive the road as they walk
+        and have not arrived anywhere yet.
+        """
+        now = self.get_sim_timestamp()
+        for agent in self.agents:
+            if agent.state.status == "MOVING":
+                continue
+            record = agent._last_observation
+            if (
+                isinstance(record, dict)
+                and record.get("location") == agent.state.current_location
+                and now - int(record.get("observed_at", -10 ** 9)) < config.OBSERVATION_REFRESH_MINUTES
+            ):
+                continue
+            self.interactions.record_observation(agent, self)
+
     async def tick(self):
         """One simulation tick.
 
@@ -804,6 +824,7 @@ class SimulationEngine:
         self.state_version += 1
         for agent in self.agents:
             agent.mental_state.expire_intentions(now)
+        self._refresh_observations()
         if self._realtime_llm:
             await self._tick_realtime()
             return

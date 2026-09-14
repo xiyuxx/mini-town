@@ -76,6 +76,25 @@ def test_a_plan_left_with_nothing_to_do_is_completed_not_blocked(tmp_path):
     run(scenario())
 
 
+def test_a_look_that_repeats_a_fresh_look_is_skipped(tmp_path):
+    """The engine records what an agent walks into, so a second look is done."""
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        agent, plan = plan_agent(engine, [
+            ("看看四周", {"interaction_type": "inspect", "content": "看看四周",
+                          "target_id": ""}),
+            REST,
+        ])
+        engine.interactions.record_observation(agent, engine)
+
+        action = engine.planner.next_plan_action(agent, engine)
+
+        assert action["plan_step_id"] == "s2"
+        assert plan.steps[0].status == "skipped"
+
+    run(scenario())
+
+
 def test_a_real_journey_is_not_skipped(tmp_path):
     """The skip is for steps already satisfied — not for steps still to come."""
     async def scenario():

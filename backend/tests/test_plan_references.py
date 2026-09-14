@@ -181,8 +181,8 @@ def test_a_step_that_never_names_its_process_is_caught_before_it_is_committed(tm
     run(scenario())
 
 
-def test_ordering_without_looking_first_is_not_committed(tmp_path):
-    """Look before you order: walking in is not looking, so the plan must inspect."""
+def test_ordering_where_the_plan_never_goes_is_not_committed(tmp_path):
+    """Arriving is seeing, so the plan must actually arrive before it orders."""
     async def scenario():
         engine = await make_engine(tmp_path)
         agent = next(item for item in engine.agents if item.id == "wang")
@@ -190,8 +190,6 @@ def test_ordering_without_looking_first_is_not_committed(tmp_path):
 
         calls = stub_planner(engine, [
             plan_payload([
-                step("走到咖啡馆", {"interaction_type": "move", "content": "走到咖啡馆",
-                                    "location": "cafe"}),
                 step("点一份午餐", {"interaction_type": "request_service",
                                     "content": "点一份午餐", "location": "cafe",
                                     "resource_id": item}),
@@ -199,8 +197,6 @@ def test_ordering_without_looking_first_is_not_committed(tmp_path):
             plan_payload([
                 step("走到咖啡馆", {"interaction_type": "move", "content": "走到咖啡馆",
                                     "location": "cafe"}),
-                step("看看吧台", {"interaction_type": "inspect", "content": "看看吧台",
-                                  "location": "cafe", "target_id": ""}),
                 step("点一份午餐", {"interaction_type": "request_service",
                                     "content": "点一份午餐", "location": "cafe",
                                     "resource_id": item}),
@@ -214,7 +210,7 @@ def test_ordering_without_looking_first_is_not_committed(tmp_path):
         problems = plan_calls[1]["payload"]["rejected_steps"][0]["problems"]
         assert [item["reason"] for item in problems] == ["尚未观察到可服务工作人员；请先查看店内情况"]
         assert [step_.action.get("interaction_type") for step_ in plan.steps] == [
-            "move", "inspect", "request_service",
+            "move", "request_service",
         ]
 
     run(scenario())

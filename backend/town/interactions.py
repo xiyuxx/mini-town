@@ -578,14 +578,7 @@ class InteractionEngine:
             snapshot = self.observation_snapshot(agent, engine, target_id)
             if target_id and not snapshot["entities"]:
                 reasons.append("观察目标不在当前位置或对当前角色不可见")
-            previous = getattr(agent, "_last_observation", None)
-            if (
-                isinstance(previous, dict)
-                and previous.get("location") == location
-                and previous.get("target_id", "") == target_id
-                and previous.get("signature") == snapshot["signature"]
-                and engine.get_sim_timestamp() - int(previous.get("observed_at", 0)) < 30
-            ):
+            if self.inspect_is_redundant(agent, engine, target_id, location):
                 reasons.append("近期已经观察过同一目标，环境没有变化")
             action.update(target_id=target_id, observation_signature=snapshot["signature"])
             effects.append({"type": "observation", "snapshot": snapshot})
@@ -679,10 +672,7 @@ class InteractionEngine:
                 snapshot = dict(effect.get("snapshot", {}))
                 if snapshot:
                     observed_at = int(sim_timestamp if sim_timestamp is not None else effect.get("observed_at", 0))
-                    agent._last_observation = {
-                        **snapshot,
-                        "observed_at": observed_at,
-                    }
+                    self._store_observation(agent, snapshot, observed_at)
                     effect["observed_at"] = observed_at
             elif effect_type == "social_interaction":
                 # Talking to someone is what satisfies the social need; without
@@ -727,6 +717,35 @@ class InteractionEngine:
         return any(
             person.id == agent_id
             for person in self._available_service_staff(facility_id, location, engine)
+        )
+
+    def inspect_is_redundant(self, agent, engine, target_id: str, location: str) -> bool:
+        """True when the agent already looked at this, here, and nothing changed."""
+        previous = getattr(agent, "_last_observation", None)
+        if not isinstance(previous, dict):
+            return False
+        if previous.get("location") != location or previous.get("target_id", "") != target_id:
+            return False
+        if engine.get_sim_timestamp() - int(previous.get("observed_at", 0)) >= 30:
+            return False
+        current = self.observation_snapshot(agent, engine, target_id)
+        return previous.get("signature") == current.get("signature")
+
+    def _store_observation(self, agent, snapshot: dict, sim_timestamp: int) -> dict:
+        record = {**snapshot, "observed_at": int(sim_timestamp)}
+        agent._last_observation = record
+        return record
+
+    def record_observation(self, agent, engine, target_id: str = "") -> dict:
+        """Write down what this agent can see, here and now.
+
+        Seeing the room it just walked into is bookkeeping, not a decision, so
+        the engine does it. ``inspect`` remains the deliberate act of looking at
+        something in particular.
+        """
+        return self._store_observation(
+            agent, self.observation_snapshot(agent, engine, target_id),
+            engine.get_sim_timestamp(),
         )
 
     def service_needs_a_look(self, agent, location: str, resource, engine) -> bool:

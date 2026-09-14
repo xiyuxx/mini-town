@@ -15,7 +15,7 @@ LIFE_PLAN_SYSTEM = """你负责为角色形成一段连续生活计划，不逐t
 steps必须有1至6项，并按真实执行顺序排列。普通生活不需要列多个候选。
 interaction_type只能是move, consume, rest, communicate, inspect, request_service, take, put, transfer, use_resource, operate, produce, work_on_goal, wait。
 move必须填写known_locations中的location ID。work_on_goal必须填写当前有效goal_id与progress_delta。环境操作必须引用上下文中可见的结构化ID：要去别处操作设施时，用那个地点facilities里的真实ID，不要自己编造。
-request_service只能请求已经看过的服务台：同一份计划里必须先有一步inspect同地点，否则这一步到了店里也会被拒绝；走进店里不算看过。成功后商品进入背包，随后才能consume。
+request_service只能写在真的会到那个地点的步骤之后：走进店里就看得见服务台，但柜台没人时会被拒绝。成功后商品进入背包，随后才能consume。
 计划要有连续性：准备、移动和到达后的活动应是不同步骤。不要用等待、观察、休息填充时间；只有角色确实在等待某个条件、需要观察未知信息或需要恢复时才能安排。
 content不得包含ID、括号假设或系统校验说明。不要补写上下文没有的事实。
 若上下文给出rejected_steps，说明那些步骤引用了世界上不存在的ID；必须改用上下文中真实存在的ID重写，没有合适ID就不要安排该步骤。"""
@@ -172,10 +172,10 @@ blocks必须是1至6个不重叠的时间区块，window使用当天的分钟数
                            earlier: list[PlanStep]) -> list[dict]:
         """Steps that fail because an earlier step is missing from the plan.
 
-        Ordering at a counter is only accepted once the agent has really looked
-        at it, and walking in is not looking. A plan that orders without an
-        earlier ``inspect`` of the same place is refused on arrival, taking the
-        whole plan down with it.
+        Ordering at a counter is only accepted where the agent has seen the
+        counter, and seeing it means being there — arriving is enough, since the
+        engine records what an agent walks into. A plan that orders somewhere it
+        never goes is refused on arrival, taking the whole plan down with it.
         """
         kind = str(action.get("interaction_type") or action.get("action") or "")
         if kind != "request_service":
@@ -187,13 +187,16 @@ blocks必须是1至6个不重叠的时间区块，window使用当天的分钟数
             return []
         if not engine.interactions.service_needs_a_look(agent, location, resource, engine):
             return []
-        looks_first = any(
-            str(step.action.get("interaction_type") or step.action.get("action") or "") == "inspect"
+        if agent.state.current_location == location:
+            return []          # already there, so already seen
+        arrives_first = any(
+            str(step.action.get("interaction_type") or step.action.get("action") or "")
+            in {"move", "inspect"}
             and str(step.action.get("location") or step.action.get("location_id")
-                    or agent.state.current_location) == location
+                    or "") == location
             for step in earlier
         )
-        if looks_first:
+        if arrives_first:
             return []
         return [{
             "field": "interaction_type", "value": kind,
@@ -216,6 +219,13 @@ blocks必须是1至6个不重叠的时间区块，window使用当天的分钟数
                 break
             action = dict(step.action)
             interaction_type = str(action.get("interaction_type") or action.get("action") or "")
+            if interaction_type == "inspect" and engine.interactions.inspect_is_redundant(
+                agent, engine, str(action.get("target_id", "")),
+                agent.state.current_location,
+            ):
+                plan.skip_current_step(now)
+                skipped += 1
+                continue
             if interaction_type != "move":
                 break
             target = str(
