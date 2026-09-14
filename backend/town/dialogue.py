@@ -15,7 +15,7 @@ DIALOGUE_SYSTEM_PROMPT = """你是当前世界中的角色，正在和{others}�
 当前模拟时间是{sim_time}。说话、行动和记忆共享同一份持续心智状态。
 可以自然换话题或再次和刚聊过的人开口，但必须知道近期会话中已经确认的事实。
 对方还不知道的消息可以主动讲出来，讲的时候要引用它的事实ID。
-只把“当前可观察事实、当前对话、近期会话”中的内容当作确定事实。
+只把“我此刻看到的周围环境、当前对话、近期会话”中的内容当作确定事实；环境中没有的东西，就当自己没看见。
 背景资料仅决定说话风格；推测必须用“好像、看起来、也许”等不确定表达。
 不补写不存在的动作、过去、年份、年龄、病情或共同经历。
 调用 dialogue_reply：content 为1-3句口语；action 为 continue 或 end；同时提交mental_update和referenced_fact_ids。
@@ -199,6 +199,38 @@ class DialogueManager:
             return [event, *(await self._finish(session, trace, sim_time))]
         return [event]
 
+    @staticmethod
+    def _environment_view(speaker, others) -> dict:
+        """What the speaker can see, projected for talking.
+
+        Read from the single observation record the engine keeps for this agent
+        rather than described a second time here: the room, who is in it, and
+        when it was last seen. Ids are left out — a person does not say the id
+        of the machine they are standing next to.
+        """
+        record = getattr(speaker, "_last_observation", None)
+        if not isinstance(record, dict):
+            view = {"这里": speaker.state.current_location, "在场的人": {}, "看到的时间": "还没看清"}
+        else:
+            here = {str(item.get("id", "")): item for item in record.get("nearby_agents", [])}
+            view = {
+                "这里": record.get("location", speaker.state.current_location),
+                "在场的人": {
+                    other.name: {
+                        "在做什么": here.get(other.id, {}).get("action") or other.state.current_action,
+                        "状态": here.get(other.id, {}).get("status") or other.state.status,
+                    }
+                    for other in others
+                },
+                "看得见的东西": [
+                    {"名称": item.get("name") or item.get("kind", ""), "类别": item.get("kind", "")}
+                    for item in record.get("entities", [])
+                ][:8],
+                "天气": record.get("weather", {}),
+                "看到的时间": record.get("observed_at", ""),
+            }
+        return view
+
     async def _generate_reply(self, session, speaker, others, trace, sim_time):
         if self.llm.fallback:
             return (
@@ -263,13 +295,7 @@ class DialogueManager:
                 "towardOther": toward_other.to_dict(),
                 "towardSpeaker": from_other.to_dict(),
             }
-        observable_facts = {
-            other.name: {
-                "location": other.state.current_location,
-                "currentActivity": other.state.current_action,
-                "status": other.state.status,
-            } for other in others
-        }
+        environment = self._environment_view(speaker, others)
         registry = self.tool_registry_factory(speaker.id)
         captured: dict = {}
 
@@ -302,7 +328,7 @@ class DialogueManager:
             ),
             f"{speaker.persona_text()}\n\n"
             f"持续心智状态：\n{speaker.mental_state.summary_for('dialogue', sim_timestamp(sim_time) or 0)}\n\n"
-            f"当前可观察事实：\n{observable_facts}\n\n"
+            f"我此刻看到的周围环境：\n{environment}\n\n"
             f"与参与者的关系：\n{relationships}\n\n"
             f"可引用事实（确定陈述必须引用这里的ID）：\n{known_facts}\n\n"
             f"对方还不知道、可以主动分享的消息（分享时同样引用其ID）：\n{shareable_facts or '无'}\n\n"

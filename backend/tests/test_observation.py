@@ -128,3 +128,37 @@ def test_an_agent_that_walked_in_can_order_from_the_counter(tmp_path):
         assert engine.interactions.service_needs_a_look(buyer, "cafe", item, engine) is False
 
     run(scenario())
+
+
+def test_a_talking_agent_is_told_what_is_around_it(tmp_path):
+    """The dialogue layer reads the same record, not a second description."""
+    async def scenario():
+        engine = await make_engine(tmp_path)
+        speaker = place(engine, "wang", "cafe")
+        listener = place(engine, "mei", "cafe")
+        await engine.tick()
+        entity = next(
+            item for item in engine.resources.at_location("cafe") if item.name
+        )
+
+        captured = {}
+
+        async def fake_loop(system, user, tools, registry, **kwargs):
+            captured["prompt"] = user
+            return {"content": "嗯。", "action": "end"}
+
+        engine.llm.fallback = False
+        engine.llm.function_call_loop = fake_loop
+        sim_time = engine.get_sim_time_str()
+        await engine.dialogue.start_dialogue(
+            [speaker, listener], "早啊。", "cafe", engine.trace, sim_time,
+        )
+        await engine.dialogue.advance_all(engine.trace, sim_time)
+
+        prompt = captured["prompt"]
+        assert "我此刻看到的周围环境" in prompt
+        assert entity.name in prompt, "the room the speaker is standing in"
+        assert "小美" in prompt and "在做什么" in prompt
+        assert str(speaker._last_observation["observed_at"]) in prompt
+
+    run(scenario())
