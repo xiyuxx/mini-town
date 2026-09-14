@@ -10,6 +10,17 @@ from .cognition import (
 from .daily_plan import DailyPlan, parse_daily_plan
 
 
+LIFE_PLAN_SYSTEM = """你负责为角色形成一段连续生活计划，不逐tick重新决策。只输出JSON：
+{"focus":"接下来一段时间在意的事情","motive":"角色自己的简短动机","review_after_minutes":60,"goal_ids":[],"steps":[{"description":"旁观者可见的自然行动","action":{"interaction_type":"move","content":"自然行动描述","location":"地点ID","duration_minutes":15},"expected_outcome":[]}]}
+steps必须有1至6项，并按真实执行顺序排列。普通生活不需要列多个候选。
+interaction_type只能是move, consume, rest, communicate, inspect, request_service, take, put, transfer, use_resource, operate, produce, work_on_goal, wait。
+move必须填写known_locations中的location ID。work_on_goal必须填写当前有效goal_id与progress_delta。环境操作必须引用上下文中可见的结构化ID：要去别处操作设施时，用那个地点facilities里的真实ID，不要自己编造。
+request_service只能在当前位置、完成inspect后请求可见服务台提供的真实商品；成功后商品进入背包，随后才能consume。
+计划要有连续性：准备、移动和到达后的活动应是不同步骤。不要用等待、观察、休息填充时间；只有角色确实在等待某个条件、需要观察未知信息或需要恢复时才能安排。
+content不得包含ID、括号假设或系统校验说明。不要补写上下文没有的事实。
+若上下文给出rejected_steps，说明那些步骤引用了世界上不存在的ID；必须改用上下文中真实存在的ID重写，没有合适ID就不要安排该步骤。"""
+
+
 class CognitivePlanner:
     def __init__(self, llm):
         self.llm = llm
@@ -96,34 +107,21 @@ blocks必须是1至6个不重叠的时间区块，window使用当天的分钟数
         context, _ = await self._resolve_intention_context(
             agent, engine, context, "life_plan",
         )
-        raw = await self._json_call(
-            """你负责为角色形成一段连续生活计划，不逐tick重新决策。只输出JSON：
-{"focus":"接下来一段时间在意的事情","motive":"角色自己的简短动机","review_after_minutes":60,"goal_ids":[],"steps":[{"description":"旁观者可见的自然行动","action":{"interaction_type":"move","content":"自然行动描述","location":"地点ID","duration_minutes":15},"expected_outcome":[]}]}
-steps必须有1至6项，并按真实执行顺序排列。普通生活不需要列多个候选。
-interaction_type只能是move, consume, rest, communicate, inspect, request_service, take, put, transfer, use_resource, operate, produce, work_on_goal, wait。
-move必须填写known_locations中的location ID。work_on_goal必须填写当前有效goal_id与progress_delta。环境操作必须引用上下文中可见的结构化ID。request_service只能在当前位置、完成inspect后请求可见服务台提供的真实商品；成功后商品进入背包，随后才能consume。
-计划要有连续性：准备、移动和到达后的活动应是不同步骤。不要用等待、观察、休息填充时间；只有角色确实在等待某个条件、需要观察未知信息或需要恢复时才能安排。
-content不得包含ID、括号假设或系统校验说明。不要补写上下文没有的事实。""",
-            {**context, "replan_reason": replan_reason},
-            mode="chat", task="life_plan",
-        )
-        raw_steps = raw.get("steps") if isinstance(raw.get("steps"), list) else []
-        steps = []
-        for item in raw_steps[:6]:
-            if not isinstance(item, dict) or not isinstance(item.get("action"), dict):
-                continue
-            description = str(item.get("description") or item["action"].get("content") or "").strip()
-            if not description:
-                continue
-            action = dict(item["action"])
-            action["content"] = description
-            action["source"] = "life_plan"
-            action["supports_goal_ids"] = [str(value) for value in action.get("supports_goal_ids", raw.get("goal_ids", []))]
-            steps.append(PlanStep(
-                description=description[:160], action=action,
-                expected_outcome=[value if isinstance(value, dict) else {"description": str(value)}
-                                  for value in item.get("expected_outcome", [])],
-            ))
+        payload = {**context, "replan_reason": replan_reason}
+        steps: list[PlanStep] = []
+        dropped: list[dict] = []
+        for attempt in (1, 2):
+            raw = await self._json_call(LIFE_PLAN_SYSTEM, payload,
+                                        mode="chat", task="life_plan")
+            steps, rejected = self._plan_steps(raw, agent, engine)
+            dropped = rejected
+            if not rejected or attempt == 2:
+                break
+            # The ids exist in the context; the model reached for ones that do
+            # not. Name the offending field and value and ask once for a
+            # rewrite, rather than committing a step that can only fail when
+            # the agent finally gets there.
+            payload = {**payload, "rejected_steps": rejected}
         if not steps:
             raise RuntimeError("life planner returned no executable steps")
         review_after = max(15, min(180, int(raw.get("review_after_minutes", 60))))
@@ -135,7 +133,39 @@ content不得包含ID、括号假设或系统校验说明。不要补写上下�
             goal_ids=[str(value) for value in raw.get("goal_ids", [])],
             steps=steps,
             replan_reason=replan_reason[:240],
+            invalid_steps=[
+                f"{item['description']}（{'；'.join(problem['reason'] for problem in item['problems'])}）"
+                for item in dropped
+            ],
         )
+
+    def _plan_steps(self, raw: dict, agent, engine) -> tuple[list[PlanStep], list[dict]]:
+        """Turn model steps into plan steps, dropping ones citing unknown ids."""
+        steps: list[PlanStep] = []
+        rejected: list[dict] = []
+        raw_steps = raw.get("steps") if isinstance(raw.get("steps"), list) else []
+        for item in raw_steps[:6]:
+            if not isinstance(item, dict) or not isinstance(item.get("action"), dict):
+                continue
+            description = str(item.get("description") or item["action"].get("content") or "").strip()
+            if not description:
+                continue
+            action = dict(item["action"])
+            action["content"] = description
+            action["source"] = "life_plan"
+            action["supports_goal_ids"] = [str(value) for value in action.get("supports_goal_ids", raw.get("goal_ids", []))]
+            problems = engine.interactions.missing_references(action, agent, engine)
+            if problems:
+                rejected.append({
+                    "description": description[:80], "action": action, "problems": problems,
+                })
+                continue
+            steps.append(PlanStep(
+                description=description[:160], action=action,
+                expected_outcome=[value if isinstance(value, dict) else {"description": str(value)}
+                                  for value in item.get("expected_outcome", [])],
+            ))
+        return steps, rejected
 
     def _skip_satisfied_steps(self, agent, engine, plan) -> int:
         """Retire travel steps the agent is already standing at.

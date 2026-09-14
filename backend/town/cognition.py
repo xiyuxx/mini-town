@@ -200,6 +200,7 @@ class LifePlan:
     current_step_index: int = 0
     status: str = "active"
     replan_reason: str = ""
+    invalid_steps: list[str] = field(default_factory=list)
     id: str = field(default_factory=lambda: _id("plan"))
 
     @property

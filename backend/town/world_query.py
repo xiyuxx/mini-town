@@ -10,8 +10,34 @@ class WorldQuery:
         self.world_pack = world_pack
         self.resources = resources
 
+    def _facility_view(self, location_id: str) -> dict:
+        """Ids a plan may cite for a place it intends to go to.
+
+        A plan is written where the agent stands but carried out elsewhere, and
+        every other part of the context describes only the current location. No
+        destination ids means the model can only invent device, anchor, and
+        process ids — and the step dies on arrival.
+        """
+        return {
+            "entities": [
+                {"id": item.id, "kind": item.kind, "name": item.name,
+                 "capabilities": sorted(item.capabilities)}
+                for item in self.resources.at_location(location_id)
+            ],
+            "processes": [
+                {"id": str(process.get("id", "")), "name": str(process.get("name", "")),
+                 "required_capability": str(process.get("required_capability", ""))}
+                for process in self.resources.processes_at(location_id)
+            ],
+            "anchors": [
+                {"id": anchor.id, "name": anchor.name,
+                 "capabilities": sorted(anchor.capabilities)}
+                for anchor in self.resources.scene.anchors_at(location_id)
+            ],
+        }
+
     def locations_for_intention(self, agent, engine, intention: dict | None = None,
-                                limit: int = 6) -> list[dict]:
+                                limit: int = 6, with_facilities: bool = False) -> list[dict]:
         """Return accessible, reachable locations relevant to an intention."""
         intention = intention if isinstance(intention, dict) else {}
         interaction_type = str(intention.get("interaction_type", ""))
@@ -85,6 +111,9 @@ class WorldQuery:
                 target = self._location_view(agent, engine, target_location)
                 if target["reachable"]:
                     selected[-1] = target
+        if with_facilities:
+            for entry in selected:
+                entry["facilities"] = self._facility_view(entry["id"])
         return selected
 
     def visible_environment(self, agent, engine, target_id: str = "") -> dict:

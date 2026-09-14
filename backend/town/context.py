@@ -91,6 +91,9 @@ class ContextService:
         ]
         context["known_locations"] = self.world_query.locations_for_intention(
             agent, engine, current_intention, limit=6,
+            # Only the tasks that write multi-step plans for other locations
+            # need the destination ids; single-action tasks act where they are.
+            with_facilities=task_type in {"life_plan", "daily_plan"},
         )
         purpose = str((current_intention or {}).get("purpose", "")).strip()
         if purpose:

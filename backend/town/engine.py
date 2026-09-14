@@ -611,7 +611,12 @@ class SimulationEngine:
             try:
                 plan = task.result()
                 agent.mental_state.life_plan = plan
-                await self.trace.log(sim_time_str, agent.id, "plan", "life_plan_created", plan.focus[:200])
+                await self.trace.log(
+                    sim_time_str, agent.id, "plan", "life_plan_created",
+                    plan.focus[:200] + (
+                        f" [丢弃步骤: {'；'.join(plan.invalid_steps)}]" if plan.invalid_steps else ""
+                    ),
+                )
                 decisions[agent.id] = self.planner.next_plan_action(agent, self)
                 await self.trace.log(sim_time_str, agent.id, "plan", "step_selected", str(decisions[agent.id])[:200])
                 self._simulation_error = None
@@ -710,7 +715,13 @@ class SimulationEngine:
                         str(decisions[agent.id])[:200],
                     )
                     continue
+                except LifePlanUnavailable as exc:
+                    # Say why the plan was retired: silent blocking is how the
+                    # reasons for replanning became invisible in the first place.
+                    await self.trace.log(sim_time_str, agent.id, "plan", "rejected", str(exc)[:200])
+                    plan.block_current_step("", str(exc))
                 except Exception as exc:
+                    await self.trace.log(sim_time_str, agent.id, "llm", "plan_failed", str(exc)[:200])
                     plan.block_current_step("", str(exc))
 
             # Live planning runs in the background so an observed failure can
@@ -875,7 +886,13 @@ class SimulationEngine:
                     still_planning.append(agent)
                     continue
                 agent.mental_state.life_plan = result
-                await self.trace.log(sim_time_str, agent.id, "plan", "life_plan_created", result.focus[:200])
+                await self.trace.log(
+                    sim_time_str, agent.id, "plan", "life_plan_created",
+                    result.focus[:200] + (
+                        f" [丢弃步骤: {'；'.join(result.invalid_steps)}]"
+                        if result.invalid_steps else ""
+                    ),
+                )
                 try:
                     decisions[agent.id] = self.planner.next_plan_action(agent, self)
                 except LifePlanUnavailable as exc:

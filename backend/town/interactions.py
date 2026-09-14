@@ -173,6 +173,83 @@ class InteractionEngine:
         self.resources = resources
         self.scene = resources.scene
 
+    # What each action needs to name, and what the validator says when it is
+    # absent: the same words, because a step refused here and a step refused on
+    # arrival are refused for the same reason.
+    REQUIRED_REFERENCES = {
+        "move": (("location", "目标地点不存在"),),
+        "take": (("resource_id", "资源不存在"),),
+        "put": (("resource_id", "资源不存在"),),
+        "transfer": (("resource_id", "资源不存在"),),
+        "use_resource": (("resource_id", "资源不存在"),),
+        "request_service": (("resource_id", "请求服务必须指定真实商品"),),
+        "operate": (("process_id", "过程不存在"),),
+        "produce": (("product_kind", "没有声明产物类型"),),
+        "communicate": (("target", "对话对象不存在"),),
+    }
+
+    def missing_references(self, action: dict, agent, engine) -> list[dict]:
+        """References this action needs that are absent from it or unknown here.
+
+        Position-independent on purpose: it judges a step written for a place
+        the agent has not reached yet, so a plan is refused before it is
+        committed instead of failing once the agent arrives. Reasons match what
+        execution-time validation says, so a step is refused for the same cause
+        whether it is planned or attempted.
+        """
+        kind = str(action.get("interaction_type") or action.get("action") or "")
+        problems: list[dict] = []
+
+        def unknown(field: str, value, reason: str) -> None:
+            problems.append({"field": field, "value": str(value), "reason": reason})
+
+        for field, reason in self.REQUIRED_REFERENCES.get(kind, ()):
+            if field == "location":
+                present = (action.get("location") or action.get("location_id")
+                           or action.get("target_location"))
+            else:
+                present = action.get(field)
+            if not str(present or "").strip():
+                # The validator looks the empty id up and fails the same way.
+                unknown(field, "", reason)
+        location = str(action.get("location") or action.get("location_id")
+                       or action.get("target_location") or "")
+        if kind == "move" and location and location not in LOCATION_MAP:
+            unknown("location", location, "目标地点不存在")
+        resource_id = str(action.get("resource_id", ""))
+        if resource_id and resource_id not in self.resources.resources:
+            unknown("resource_id", resource_id, "资源不存在")
+        process_id = str(action.get("process_id", ""))
+        if process_id and process_id not in self.resources.processes:
+            unknown("process_id", process_id, "过程不存在")
+        anchor_id = str(action.get("anchor_id") or action.get("target_anchor_id") or "")
+        if anchor_id and anchor_id not in self.scene.anchors:
+            unknown("anchor_id", anchor_id, "交互锚点不存在")
+        container_id = str(action.get("container_id") or action.get("destination_container_id") or "")
+        if container_id and container_id not in self.scene.containers:
+            unknown("container_id", container_id, "目标容器不存在")
+        if kind == "communicate":
+            target_id = str(action.get("target", ""))
+            if target_id and target_id not in {item.id for item in engine.agents}:
+                unknown("target", target_id, "对话对象不存在")
+        if kind == "work_on_goal":
+            goal_id = str(action.get("goal_id", ""))
+            actionable = {
+                goal.id for goal in agent.mental_state.goals
+                if goal.status in {"proposed", "active", "blocked", "suspended"}
+            }
+            if goal_id and goal_id not in actionable:
+                unknown("goal_id", goal_id, "目标不存在、已完成或不再可推进")
+            try:
+                progress = float(action["progress_delta"])
+            except (KeyError, TypeError, ValueError):
+                unknown("progress_delta", action.get("progress_delta", ""),
+                        "推进目标必须声明progress_delta")
+            else:
+                if not 0 < progress <= 1:
+                    unknown("progress_delta", progress, "progress_delta必须大于0且不超过1")
+        return problems
+
     def observation_snapshot(self, agent, engine, target_id: str = "") -> dict:
         location = agent.state.current_location
         visible = self.resources.visible_at(location, agent.id)
