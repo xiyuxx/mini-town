@@ -1436,24 +1436,6 @@
       "location": "road_main"
     }
   ],
-  "random_events": [
-    {
-      "type": "lost_item",
-      "template": "{location}门口有人遗落了一个钱包"
-    },
-    {
-      "type": "weather_gust",
-      "template": "一阵突如其来的大风"
-    },
-    {
-      "type": "performance",
-      "template": "有人在{location}演奏吉他"
-    },
-    {
-      "type": "seasonal_change",
-      "template": "{location}的花开了，很好看"
-    }
-  ],
   "fallback_dialogue": [
     "是啊，挺好的。",
     "还不错，你呢？",
@@ -1464,24 +1446,35 @@
     "services": {
       "power": {
         "normal": "normal",
-        "failed": "outage"
+        "failed": "outage",
+        "labels": {
+          "normal": "供电恢复",
+          "outage": "停电了"
+        }
       },
       "water": {
         "normal": "normal",
-        "failed": "outage"
+        "failed": "outage",
+        "labels": {
+          "normal": "供水恢复",
+          "outage": "停水了"
+        }
       },
       "road_main": {
         "normal": "open",
-        "failed": "closed"
+        "failed": "closed",
+        "labels": {
+          "open": "主街恢复通行",
+          "closed": "主街封闭"
+        }
       }
     },
     "failure_duration_ticks": [
-      1,
-      4
+      6,
+      36
     ]
   },
   "simulation": {
-    "random_event_probability": 0.05,
     "need_deltas_per_tick": {
       "hunger": 0.45,
       "social": -0.25,

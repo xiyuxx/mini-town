@@ -1,13 +1,13 @@
-"""Town environment agent: weather, infrastructure, random events.
+"""Town environment agent: weather, infrastructure, festivals.
 
-The town agent produces WorldState facts each tick.
+The town agent reports the state of the world each tick.
 It does NOT make decisions for people.
 """
 
 import random
 from dataclasses import dataclass
 from ..config import config
-from .world import LOCATIONS
+from .world import LOCATION_MAP
 from .world_pack import DEFAULT_WORLD, WorldPack
 
 
@@ -94,28 +94,6 @@ class InfrastructureState:
         return dict(self.values)
 
 
-class RandomEventGenerator:
-    """Generates world-defined flavor events."""
-
-    def __init__(self, world_pack: WorldPack):
-        self.templates = world_pack.random_events
-        self.probability = float(world_pack.simulation.get("random_event_probability", 0.0))
-
-    def tick(self, sim_hour: int) -> list[dict]:
-        if not self.templates or random.random() >= self.probability:
-            return []
-        event = random.choice(self.templates)
-        loc = random.choice(LOCATIONS)
-        template = str(event.get("template", ""))
-        return [{
-            "type": str(event.get("type", "random_event")),
-            "location": loc.id,
-            "description": template.format(location=loc.name),
-        }]
-
-
-
-
 class TownAgent:
 
     def __init__(self, world_pack: WorldPack = DEFAULT_WORLD):
@@ -124,11 +102,13 @@ class TownAgent:
         self.seasons = [str(item) for item in weather.get("seasons", ["default"])]
         self.season_length_days = max(1, int(weather.get("season_length_days", 30)))
         self.festivals = world_pack.festivals
+        self.services_spec = dict(world_pack.infrastructure.get("services", {}))
         self.need_deltas = dict(world_pack.simulation.get("need_deltas_per_tick", {}))
         self.weather_engine = WeatherEngine(world_pack)
         self.infrastructure = InfrastructureState(world_pack)
-        self.event_generator = RandomEventGenerator(world_pack)
         self._last_state: TownState | None = None
+        self._last_condition = ""
+        self._last_services: dict[str, str] = {}
 
     def estimate_activity_duration(self, agent, description: str,
                                    location_id: str,
@@ -245,7 +225,8 @@ class TownAgent:
 
         weather = self.weather_engine.tick(season)
         infra = self.infrastructure.tick()
-        events = self.event_generator.tick(sim_hour)
+        events = self._weather_events(weather)
+        events.extend(self._infrastructure_events(infra))
 
         # Festivals
         festivals = self._check_festivals(day, sim_hour)
@@ -265,6 +246,43 @@ class TownAgent:
             festivals=[str(item.get("name", item.get("id", ""))) for item in festivals],
         )
         return self._last_state
+
+    def _weather_events(self, weather: dict) -> list[dict]:
+        """Report a change in the sky.
+
+        Weather is the one state that genuinely comes from outside the town, so
+        it is announced rather than discovered: rain needs people to notice it
+        even when they were not looking out of the window.
+        """
+        condition = str(weather.get("condition", ""))
+        previous = self._last_condition
+        self._last_condition = condition
+        if not previous or previous == condition:
+            return []
+        return [{
+            "type": "weather_change",
+            "location": "",
+            "description": f"天气变成{condition}——{weather.get('description', '')}",
+        }]
+
+    def _infrastructure_events(self, values: dict) -> list[dict]:
+        """Report services that broke or came back, using the pack's own labels."""
+        events = []
+        for name, status in values.items():
+            previous = self._last_services.get(name, status)
+            if previous == status:
+                continue
+            spec = self.services_spec.get(name, {})
+            label = str(spec.get("labels", {}).get(str(status), status))
+            events.append({
+                "type": "infrastructure",
+                "service": name,
+                "status": str(status),
+                "location": name if name in LOCATION_MAP else "",
+                "description": label,
+            })
+        self._last_services = dict(values)
+        return events
 
     def _check_festivals(self, day: int, sim_hour: int) -> list[dict]:
         active = []

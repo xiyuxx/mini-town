@@ -87,10 +87,6 @@ class WorldPack:
         return list(self.data.get("festivals", []))
 
     @property
-    def random_events(self) -> list[dict]:
-        return list(self.data.get("random_events", []))
-
-    @property
     def infrastructure(self) -> dict:
         return dict(self.data.get("infrastructure", {}))
 

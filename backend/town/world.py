@@ -61,6 +61,22 @@ def travel_cost(weather: dict | str) -> dict:
         "level": "low" if cost < 0.25 else "medium" if cost < 0.6 else "high" if cost < 0.9 else "severe",
     }
 
+
+# Locations without a roof. Weather that makes travel expensive is the same
+# weather that makes standing in one of these unpleasant, so the pack's own
+# travel_cost doubles as the "seek shelter" signal.
+OUTDOOR_LOCATION_TYPES = {"park", "road", "transit", "market"}
+
+
+def is_outdoor(location_id: str) -> bool:
+    loc = LOCATION_MAP.get(location_id)
+    return bool(loc and loc.type in OUTDOOR_LOCATION_TYPES)
+
+
+def is_shelter_weather(weather: dict) -> bool:
+    return travel_cost(weather)["level"] != "low"
+
+
 # ── Grid initialization ──────────────────────────────────────
 def _build_grid() -> list[list[str]]:
     """Build a 20×14 grid from LOCATIONS. Default is road, buildings override."""

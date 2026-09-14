@@ -133,7 +133,7 @@ class SimulationEngine:
         self.infrastructure: dict = self.town_agent.infrastructure.to_dict()
         self.town_events: list[dict] = []
         self.active_festival: str | None = None
-        self.season: str = "summer"
+        self.season: str = str(self.world_pack.weather.get("seasons", ["summer"])[0])
 
         # ── Pub/sub for WebSocket broadcast ──
         self._subscribers: list[asyncio.Queue] = []
@@ -431,7 +431,7 @@ class SimulationEngine:
         self.infrastructure = self.town_agent.infrastructure.to_dict()
         self.town_events = []
         self.active_festival = None
-        self.season = "summer"
+        self.season = str(self.world_pack.weather.get("seasons", ["summer"])[0])
         self._last_events = []
         self._event_sequence = 0
         await self.memory.clear()
@@ -702,7 +702,7 @@ class SimulationEngine:
             self._day_just_changed = False
             await self._daily_maintenance()
         sim_time_str = self.get_sim_time_str()
-        self._tick_town_systems()
+        await self._tick_town_systems()
         all_events.extend(self._advance_logistics())
         for agent in self.agents:
             self.town_agent.advance_agent_needs(agent)
@@ -858,7 +858,7 @@ class SimulationEngine:
             self._day_just_changed = False
             await self._daily_maintenance()
         sim_time_str = self.get_sim_time_str()
-        self._tick_town_systems()
+        await self._tick_town_systems()
         all_events.extend(self._advance_logistics())
         for agent in self.agents:
             self.town_agent.advance_agent_needs(agent)
@@ -910,16 +910,44 @@ class SimulationEngine:
             if line.startswith('当前应该:'):
                 return line.split('当前应该: ')[1].split('（')[0].strip()
         return '做自己的事'
-    def _tick_town_systems(self):
-        """Query TownAgent for weather, infrastructure, random events, and seasons."""
+
+    async def _tick_town_systems(self):
+        """Query TownAgent for weather, infrastructure, events, and seasons."""
         try:
             agent_locations = {a.state.id: a.state.current_location for a in self.agents}
             town_state: TownState = self.town_agent.tick(self.hour, self.day, agent_locations)
             self.weather = town_state.weather
             self.infrastructure = town_state.infrastructure
             self.town_events = town_state.events
+            self.season = town_state.season
+            self.active_festival = town_state.festivals[0] if town_state.festivals else None
+            await self._record_town_events(town_state.events)
         except Exception as exc:
             print(f"[TOWN] world-system update failed: {exc}", flush=True)
+
+    async def _record_town_events(self, events: list[dict]) -> None:
+        """Let the people who were there learn about what just changed.
+
+        The environment does not invent events, it reports state it really has:
+        a broken service is noticed by whoever is affected, and everyone notices
+        when the town's power goes out.
+        """
+        for event in events:
+            status = str(event.get("status", ""))
+            if event.get("type") != "infrastructure" or status == "":
+                continue
+            location = str(event.get("location", ""))
+            present = [agent for agent in self.agents if agent.state.current_location == location]
+            witnesses = present if location else list(self.agents)
+            if not witnesses:
+                continue
+            reporter = witnesses[0]
+            await self._record_fact(
+                reporter, "infrastructure", location or "town",
+                {"service": str(event.get("service", "")), "status": status,
+                 "description": str(event.get("description", ""))},
+                participants=[agent.id for agent in witnesses if agent.id != reporter.id],
+            )
 
     def _advance_logistics(self) -> list[dict]:
         """Advance deterministic orders and expose them as public events."""
@@ -1253,6 +1281,7 @@ class SimulationEngine:
             ]
             for effect in completed_goal_effects:
                 agent.complete_goal_commitment(str(effect.get("goal_id", "")), self.day)
+            stock_events = await self._report_depletions(agent, effects)
             agent._activity_action = None
             agent._activity_effects = []
             if task_id:
@@ -1338,8 +1367,38 @@ class SimulationEngine:
                 "content": f"{agent.name}完成了{desc}",
                 "cause": "commitment" if commitment_id else "activity_duration_elapsed",
                 "outcome": environment_changes or f"需求：精力{needs['energy']}，饥饿{needs['hunger']}，社交{needs['social']}",
-            })]
+            }), *stock_events]
         return []
+
+    async def _report_depletions(self, agent: Agent, effects: list[dict]) -> list[dict]:
+        """Tell the town when the last unit of something is taken.
+
+        A shortage is not scheduled flavor: it is the visible result of someone
+        buying the last one, so whoever is there learns it and can pass it on.
+        """
+        events: list[dict] = []
+        for effect in effects:
+            if effect.get("type") != "resource_change":
+                continue
+            after = float(effect.get("after", 1.0))
+            before = float(effect.get("before", 1.0))
+            if after > 0 or before <= 0:
+                continue
+            resource = self.resources.get(str(effect.get("resource_id", "")))
+            name = resource.name if resource else str(effect.get("resource_id", ""))
+            location = agent.state.current_location
+            present = [item for item in self.agents if item.state.current_location == location]
+            await self._record_fact(
+                agent, "out_of_stock", location,
+                {"resource_id": str(effect.get("resource_id", "")), "resource": name},
+                participants=[item.id for item in present if item.id != agent.id],
+            )
+            events.append(self._make_event({
+                "type": "out_of_stock", "agentIds": [agent.id], "location": location,
+                "content": f"{location_name(location)}的{name}卖光了",
+                "cause": "resource_depleted",
+            }))
+        return events
 
     def _summarize_environment_effects(self, effects: list[dict]) -> str:
         changes = []

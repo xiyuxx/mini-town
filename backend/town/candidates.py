@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .world import LOCATION_MAP, can_enter
+from .world import LOCATION_MAP, can_enter, is_outdoor, is_shelter_weather
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,9 @@ def build_routine_candidates(agent, engine, limit: int = 6) -> list[ActionCandid
             if location_id not in LOCATION_MAP or not can_enter(agent.id, location_id):
                 continue
             distance = _distance(agent, location_id)
+            shelter = 0.0
+            if is_shelter_weather(engine.weather):
+                shelter = -0.12 if is_outdoor(location_id) else 0.12
             people = [
                 other for other in engine.agents
                 if other.id != agent.id and other.state.current_location == location_id
@@ -67,7 +70,7 @@ def build_routine_candidates(agent, engine, limit: int = 6) -> list[ActionCandid
                 )
                 score = max(0.0, min(
                     1.0, block.priority + social_value + rapport_value + stranger_pull
-                    + habit_strength * 0.18 - travel_cost,
+                    + shelter + habit_strength * 0.18 - travel_cost,
                 ))
                 action = {
                     "interaction_type": "wait",
@@ -84,6 +87,10 @@ def build_routine_candidates(agent, engine, limit: int = 6) -> list[ActionCandid
                     reasons.append(f"预计移动距离{distance}")
                 if nearby:
                     reasons.append(f"该地点有{nearby}位其他角色")
+                if shelter > 0:
+                    reasons.append("外面的天气不适合待着")
+                elif shelter < 0:
+                    reasons.append("这里露天的，天气不好")
                 if strongest > 0:
                     reasons.append(f"那里有熟人（熟悉度{strongest:.1f}）")
                 elif strangers and social_need > 0.5:

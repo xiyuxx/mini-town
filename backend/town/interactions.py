@@ -5,7 +5,7 @@ import hashlib
 import json
 import uuid
 
-from .world import LOCATION_MAP, bfs_path, can_enter, location_center
+from .world import LOCATION_MAP, bfs_path, can_enter, is_outdoor, location_center, location_name
 from .world_pack import DEFAULT_WORLD, WorldPack
 from .scene import SceneIndex
 from ..config import config
@@ -284,6 +284,7 @@ class InteractionEngine:
             reasons.append(f"未知交互类型: {kind}")
         if agent.state.status != "IDLE":
             reasons.append(f"当前状态{agent.state.status}不能开始新行动")
+        reasons.extend(self._infrastructure_reasons(agent, kind, action, engine))
 
         if kind == "move":
             target_location = str(action.get("location", ""))
@@ -518,6 +519,46 @@ class InteractionEngine:
             option_id=option_id, feasible=not reasons, reasons=reasons,
             estimated_minutes=duration, expected_effects=effects, resolved_action=action,
         )
+
+    # Which capabilities the town's utilities provide. A failed service stops
+    # the activities that genuinely depend on it, indoors: a blackout does not
+    # close an open-air stall, and a broken water main does not stop a chat.
+    SERVICE_CAPABILITIES = {
+        "power": {"service"},
+        "water": {"prepare", "process"},
+    }
+    # Being somewhere is not the same as using its equipment: a blackout does
+    # not stop people sitting in the cafe, only being served there.
+    SERVICE_DEPENDENT_ACTIONS = {"request_service", "use_resource", "operate", "produce"}
+
+    def _infrastructure_reasons(self, agent, kind: str, action: dict, engine) -> list[str]:
+        """Report world state that makes the action impossible right now."""
+        infra = getattr(engine, "infrastructure", {}) or {}
+        if not isinstance(infra, dict) or not infra:
+            return []
+        target = str(action.get("location", "")) or agent.state.current_location
+        if infra.get("road_main") == "closed" and target == "road_main":
+            return [f"{location_name('road_main')}当前封闭"]
+        if kind not in self.SERVICE_DEPENDENT_ACTIONS:
+            return []
+        blocked: set[str] = set()
+        labels: list[str] = []
+        for service, capabilities in self.SERVICE_CAPABILITIES.items():
+            if infra.get(service, "normal") == "normal":
+                continue
+            blocked |= capabilities
+            labels.append(service)
+        if not blocked:
+            return []
+        for anchor in self.scene.anchors.values():
+            if anchor.location_id != target:
+                continue
+            if not (blocked & set(anchor.capabilities)):
+                continue
+            if is_outdoor(target):
+                continue
+            return [f"服务中断（{'、'.join(labels)}），这里暂时无法进行该活动"]
+        return []
 
     def apply_effects(self, agent, action: dict, effects: list[dict], sim_timestamp: int | None = None) -> list[dict]:
         applied = []
