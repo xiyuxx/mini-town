@@ -44,19 +44,30 @@ def build_routine_candidates(agent, engine, limit: int = 6) -> list[ActionCandid
             if location_id not in LOCATION_MAP or not can_enter(agent.id, location_id):
                 continue
             distance = _distance(agent, location_id)
-            nearby = sum(
-                1 for other in engine.agents
+            people = [
+                other for other in engine.agents
                 if other.id != agent.id and other.state.current_location == location_id
-            )
+            ]
+            nearby = len(people)
+            ties = [engine.relationship_store.rapport(agent.id, other.id) for other in people]
+            strongest = max((tie.familiarity for tie in ties), default=0.0)
+            liked = max((tie.affinity for tie in ties), default=0.0)
+            strangers = sum(1 for tie in ties if tie.familiarity <= 0.0)
             for activity_index, activity in enumerate(activities):
                 travel_cost = min(0.35, distance / 60)
-                social_need = max(0.0, (35 - agent.state.needs.get("social", 55)) / 35)
+                social_need = agent.social_urgency()
                 social_value = min(0.12, nearby * 0.04) * (0.5 + social_need)
+                # Who is already there decides where an agent goes: a known and
+                # liked face pulls, and when starved for company an unknown one
+                # becomes a reason to go somewhere new.
+                rapport_value = min(0.14, strongest / 20 * 0.08 + max(0.0, liked) / 10 * 0.06)
+                stranger_pull = 0.06 if social_need > 0.5 and strangers else 0.0
                 habit_strength = engine.habits.strength_for(
                     agent.id, block.id, location_id, activity,
                 )
                 score = max(0.0, min(
-                    1.0, block.priority + social_value + habit_strength * 0.18 - travel_cost,
+                    1.0, block.priority + social_value + rapport_value + stranger_pull
+                    + habit_strength * 0.18 - travel_cost,
                 ))
                 action = {
                     "interaction_type": "wait",
@@ -73,6 +84,10 @@ def build_routine_candidates(agent, engine, limit: int = 6) -> list[ActionCandid
                     reasons.append(f"预计移动距离{distance}")
                 if nearby:
                     reasons.append(f"该地点有{nearby}位其他角色")
+                if strongest > 0:
+                    reasons.append(f"那里有熟人（熟悉度{strongest:.1f}）")
+                elif strangers and social_need > 0.5:
+                    reasons.append("那里有还没打过交道的人")
                 if habit_strength >= 0.08:
                     reasons.append(f"这是最近反复选择的活动（惯性{habit_strength:.2f}）")
                 candidates.append(ActionCandidate(

@@ -13,6 +13,7 @@ FALLBACK_TALK_REPLIES = [str(item) for item in DEFAULT_WORLD.data.get("fallback_
 DIALOGUE_SYSTEM_PROMPT = """你是当前世界中的角色，正在和{others}对话。
 当前模拟时间是{sim_time}。说话、行动和记忆共享同一份持续心智状态。
 可以自然换话题或再次和刚聊过的人开口，但必须知道近期会话中已经确认的事实。
+对方还不知道的消息可以主动讲出来，讲的时候要引用它的事实ID。
 只把“当前可观察事实、当前对话、近期会话”中的内容当作确定事实。
 背景资料仅决定说话风格；推测必须用“好像、看起来、也许”等不确定表达。
 不补写不存在的动作、过去、年份、年龄、病情或共同经历。
@@ -56,6 +57,7 @@ class DialogueManager:
         self.tool_registry_factory = tool_registry_factory
         self.store = store
         self.fact_ledger = None
+        self.fact_store = None
         self._active_dialogues: dict[str, DialogueSession] = {}
 
     def participant_ids(self) -> set[str]:
@@ -137,10 +139,20 @@ class DialogueManager:
                 mental_update = dict(mental_update or {})
                 updates = list(mental_update.get("belief_updates", []))
                 updates.append({
-                    "proposition": reply, "status": "uncertain", "confidence": 0.35,
+                    "proposition": reply, "status": "uncertain",
+                    "confidence": 0.35,
                     "source_fact_ids": valid_refs,
                 })
                 mental_update["belief_updates"] = updates
+            # Saying something out loud is how the listener comes to know it.
+            for fact in self.fact_ledger.share(referenced_fact_ids, [p.id for p in others]):
+                await trace.log(
+                    sim_time, speaker.id, "dialogue", "fact_shared",
+                    f"dialogue_id={session.id}, fact_id={fact.id}, "
+                    f"listeners={','.join(item for item in fact.known_by if item != speaker.id)}",
+                )
+                if self.fact_store is not None:
+                    await self.fact_store.mark_known(fact)
 
         session.turn_count += 1
         speaker.mental_state.apply_update(
@@ -193,10 +205,17 @@ class DialogueManager:
                     "lastMessages": [message["content"] for message in recent.get("messages", [])[-4:]],
                 }
         known_facts = []
+        shareable_facts = []
         if self.fact_ledger is not None:
             known_facts = [
                 {"id": fact.id, "type": fact.type, "time": fact.sim_time, "details": fact.details}
                 for fact in self.fact_ledger.known_for(speaker.id, limit=20)
+            ]
+            shareable_facts = [
+                {"id": fact.id, "type": fact.type, "time": fact.sim_time, "details": fact.details}
+                for fact in self.fact_ledger.unknown_to(
+                    speaker.id, [p.id for p in others], limit=8,
+                )
             ]
         relationships = {}
         for other in others:
@@ -241,6 +260,7 @@ class DialogueManager:
             f"当前可观察事实：\n{observable_facts}\n\n"
             f"与参与者的关系：\n{relationships}\n\n"
             f"可引用事实（确定陈述必须引用这里的ID）：\n{known_facts}\n\n"
+            f"对方还不知道、可以主动分享的消息（分享时同样引用其ID）：\n{shareable_facts or '无'}\n\n"
             f"双方近期会话（不是冷却限制，可以自然承接）：\n{recent_dialogues or '无'}\n\n"
             f"相关长期记忆：\n{memories_to_text(memories)}\n\n"
             f"当前对话记录：\n" + "\n".join(session.conversation) +

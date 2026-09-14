@@ -8,6 +8,7 @@ import uuid
 from .world import LOCATION_MAP, bfs_path, can_enter, location_center
 from .world_pack import DEFAULT_WORLD, WorldPack
 from .scene import SceneIndex
+from ..config import config
 
 INTERACTION_TYPES = {
     "move", "consume", "rest", "communicate", "inspect", "request_service", "use_resource",
@@ -565,6 +566,15 @@ class InteractionEngine:
                         "observed_at": observed_at,
                     }
                     effect["observed_at"] = observed_at
+            elif effect_type == "social_interaction":
+                # Talking to someone is what satisfies the social need; without
+                # this branch the effect was produced and silently dropped, so
+                # the need could only ever decay.
+                delta = float(effect.get("delta", config.SOCIAL_INTERACTION_RECOVERY))
+                before = float(agent.state.needs.get("social", 0))
+                after = max(0.0, min(100.0, before + delta))
+                agent.state.needs["social"] = after
+                effect.update(before=before, after=after)
             elif effect_type == "goal_progress":
                 goal_id = str(effect.get("goal_id", ""))
                 for goal in agent.mental_state.goals:

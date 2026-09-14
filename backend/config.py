@@ -81,6 +81,9 @@ class Config:
     # conversation budget never reaches the rest of the roster.
     DIALOGUE_PAIR_COOLDOWN_MINUTES: int = int(os.getenv("DIALOGUE_PAIR_COOLDOWN_MINUTES", "60"))
     DIALOGUE_MAX_PER_AGENT_PER_DAY: int = int(os.getenv("DIALOGUE_MAX_PER_AGENT_PER_DAY", "6"))
+    # Social need recovered by one finished conversation. The need decays 0.25
+    # per tick (~48/day), so this restores roughly half a day of it.
+    SOCIAL_INTERACTION_RECOVERY: float = float(os.getenv("SOCIAL_INTERACTION_RECOVERY", "25"))
 
 
 config = Config()

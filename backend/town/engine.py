@@ -41,6 +41,7 @@ from .request_state import (
 )
 from .cognition_store import CognitionStore
 from .interaction_store import InteractionRecord, InteractionStore
+from .fact_store import FactStore
 from .world_pack import DEFAULT_WORLD
 
 
@@ -71,6 +72,7 @@ class SimulationEngine:
         self.dialogue_store = DialogueStore(self.memory.db_path)
         self.cognition_store = CognitionStore(self.memory.db_path)
         self.interaction_store = InteractionStore(self.memory.db_path)
+        self.fact_store = FactStore()
         self._interactions: dict[str, InteractionRecord] = {}
 
         self.dialogue = DialogueManager(
@@ -187,12 +189,18 @@ class SimulationEngine:
         self.dialogue_store.db_path = storage_path
         self.cognition_store.db_path = storage_path
         self.interaction_store.db_path = storage_path
+        self.fact_store.db_path = storage_path
         await self.memory.init_db()
         await self.relationship_store.init_db()
         await self.trace.init_db()
         await self.dialogue_store.init_db()
         await self.cognition_store.init_db()
         await self.interaction_store.init_db()
+        await self.fact_store.init_db()
+        await self.relationship_store.load_all()
+        for fact in await self.fact_store.load_recent():
+            self.fact_ledger.add(fact)
+        self.dialogue.fact_store = self.fact_store
         self._init_agents()
         for agent in self.agents:
             await self.cognition_store.load_agent(agent, self.habits)
@@ -415,6 +423,7 @@ class SimulationEngine:
         self.tasks.clear()
         self.habits.clear()
         self.fact_ledger.clear()
+        await self.fact_store.clear()
         self.resources.reset()
         self.logistics.reset()
         self.town_agent = TownAgent(self.world_pack)
@@ -428,6 +437,7 @@ class SimulationEngine:
         await self.memory.clear()
         await self.trace.clear()
         await self.relationship_store.clear()
+        self.relationship_store.clear_cache()
         await self.dialogue_store.clear()
         await self.cognition_store.clear()
         await self.interaction_store.clear()
@@ -1072,10 +1082,10 @@ class SimulationEngine:
         self._interactions[record.id] = record
         await self.interaction_store.upsert(record)
 
-    def _record_fact(self, agent: Agent, fact_type: str, location: str,
-                     details: dict, participants: list[str] | None = None,
-                     source_ids: list[str] | None = None,
-                     interaction_id: str = "") -> FactEvent:
+    async def _record_fact(self, agent: Agent, fact_type: str, location: str,
+                           details: dict, participants: list[str] | None = None,
+                           source_ids: list[str] | None = None,
+                           interaction_id: str = "") -> FactEvent:
         fact = self.fact_ledger.add(FactEvent(
             sim_time=self.get_sim_time_str(),
             sim_timestamp=self.get_sim_timestamp(),
@@ -1088,6 +1098,7 @@ class SimulationEngine:
             interaction_id=interaction_id,
         ))
         agent.mental_state.add_fact(fact, goal=agent.mental_state.active_goal)
+        await self.fact_store.upsert(fact)
         return fact
 
     async def _form_experience(self, agent: Agent, event: ExperienceEvent):
@@ -1133,7 +1144,7 @@ class SimulationEngine:
                 "location": agent.state.current_location,
             }
             agent._movement_action = None
-            arrival_fact = self._record_fact(
+            arrival_fact = await self._record_fact(
                 agent, "movement_arrived", agent.state.current_location,
                 {
                     "purpose": agent._movement_reason or "办事",
@@ -1274,7 +1285,7 @@ class SimulationEngine:
             )
             if observation_effect:
                 snapshot = dict(observation_effect.get("snapshot", {}))
-                observation_fact = self._record_fact(
+                observation_fact = await self._record_fact(
                     agent, "environment_observed", agent.state.current_location,
                     {
                         "target_id": snapshot.get("target_id", ""),
@@ -1286,7 +1297,7 @@ class SimulationEngine:
                         "observed_at": observation_effect.get("observed_at", self.get_sim_timestamp()),
                     },
                 )
-            completed_fact = self._record_fact(
+            completed_fact = await self._record_fact(
                 agent, "activity_completed", agent.state.current_location,
                 {
                     "activity": desc,
@@ -1442,7 +1453,7 @@ class SimulationEngine:
             interaction_type = str(
                 decision.get("interaction_type") or decision.get("action") or ""
             )
-            blocked = self._record_fact(
+            blocked = await self._record_fact(
                 agent,
                 "service_unavailable" if interaction_type == "request_service" else "action_blocked",
                 agent.state.current_location,
@@ -1502,7 +1513,7 @@ class SimulationEngine:
         if not result:
             if task_id:
                 self.tasks.block(task_id, "执行器未能启动已验证行动")
-            blocked = self._record_fact(
+            blocked = await self._record_fact(
                 agent, "action_blocked", agent.state.current_location,
                 {"action": decision, "reasons": ["执行器未能启动已验证行动"]},
                 interaction_id=str(decision.get("interaction_id", "")),
@@ -1540,7 +1551,7 @@ class SimulationEngine:
             )
             return []
         result["interactionId"] = decision.get("interaction_id", "")
-        fact = self._record_fact(
+        fact = await self._record_fact(
             agent, result.get("type", "action"),
             result.get("location", agent.state.current_location),
             {
@@ -1775,6 +1786,14 @@ class SimulationEngine:
                     str(raw_event.get("interactionId", raw_event.get("dialogueId", ""))),
                     "completed",
                 )
+                # One finished conversation satisfies the social need, whoever
+                # started it; this is its only completion point.
+                for agent_id in raw_event.get("agentIds", []):
+                    participant = self._find_agent_by_id(agent_id)
+                    if participant:
+                        self.interactions.apply_effects(
+                            participant, {}, [{"type": "social_interaction"}],
+                        )
                 continue
             if raw_event.get("type") != "dialogue_line":
                 continue
@@ -1782,7 +1801,7 @@ class SimulationEngine:
             speaker = next((agent for agent in self.agents if agent.name == speaker_name), None)
             if not speaker:
                 continue
-            fact = self._record_fact(
+            fact = await self._record_fact(
                 speaker, "dialogue_line", raw_event.get("location", speaker.state.current_location),
                 {"content": raw_event.get("content", ""), "dialogue_id": raw_event.get("dialogueId", "")},
                 participants=[item for item in raw_event.get("agentIds", []) if item != speaker.id],
@@ -1951,7 +1970,7 @@ class SimulationEngine:
                 line_event = next((event for event in raw_events if event.get("type") == "dialogue_line"), None)
                 if line_event:
                     speaker = participants[0]
-                    fact = self._record_fact(
+                    fact = await self._record_fact(
                         speaker, "dialogue_line", loc,
                         {"content": line_event.get("content", ""), "dialogue_id": line_event.get("dialogueId", "")},
                         participants=[participant.id for participant in participants if participant.id != speaker.id],

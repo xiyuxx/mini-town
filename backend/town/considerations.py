@@ -3,6 +3,29 @@
 from .cognition import ActiveConsideration
 
 
+def _social_target(agent, engine):
+    """Who this agent would most want to see right now.
+
+    The strongest tie wins; someone with no ties at all is pointed at the
+    nearest other agent, so the drive to socialise has a direction even before
+    any relationship exists.
+    """
+    others = [other for other in engine.agents if other.id != agent.id]
+    if not others:
+        return None
+    ranked = []
+    for other in others:
+        tie = engine.relationship_store.rapport(agent.id, other.id)
+        ranked.append((tie.familiarity / 20 + max(0.0, tie.affinity) / 10, other))
+    best_score, best = max(ranked, key=lambda item: item[0])
+    if best_score > 0:
+        return best
+    return min(
+        others,
+        key=lambda other: abs(other.state.x - agent.state.x) + abs(other.state.y - agent.state.y),
+    )
+
+
 def collect_active_considerations(agent, engine) -> list[ActiveConsideration]:
     """Collect current motives and constraints without asking an LLM."""
     now = engine.get_sim_timestamp()
@@ -47,12 +70,23 @@ def collect_active_considerations(agent, engine) -> list[ActiveConsideration]:
             details={"need": "energy", "value": needs.get("energy", 0)},
         ))
 
-    social_urgency = max(0.0, min(1.0, (35 - needs.get("social", 0)) / 35))
+    social_urgency = agent.social_urgency()
     if social_urgency > 0:
+        confidant = _social_target(agent, engine)
+        description = "需要与人交流或接触"
+        details = {"need": "social", "value": needs.get("social", 0)}
+        if confidant is not None:
+            tie = engine.relationship_store.rapport(agent.id, confidant.id)
+            description = f"需要与人交流，想去找{confidant.name}"
+            details.update(
+                target_agent_id=confidant.id,
+                target_location=confidant.state.current_location,
+                familiarity=round(tie.familiarity, 1),
+            )
         considerations.append(ActiveConsideration(
             kind="urgent_need", source_id=f"need:{agent.id}:social",
-            description="需要与人交流或接触", priority=0.7, urgency=social_urgency,
-            details={"need": "social", "value": needs.get("social", 0)},
+            description=description, priority=0.7, urgency=social_urgency,
+            details=details,
         ))
 
     plan = agent.mental_state.life_plan

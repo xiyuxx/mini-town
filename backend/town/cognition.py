@@ -718,6 +718,34 @@ class FactLedger:
                  if agent_id in self._facts[fid].known_by and self._facts[fid].sim_timestamp >= since]
         return list(reversed(facts[:limit]))
 
+    def unknown_to(self, agent_id: str, other_ids: list[str], limit: int = 8) -> list[FactEvent]:
+        """Facts this agent knows that at least one of the others has not heard.
+
+        This is what a speaker has to tell: news rather than already-shared
+        ground, so conversations carry information instead of repeating it.
+        """
+        listeners = [item for item in dict.fromkeys(other_ids) if item and item != agent_id]
+        if not listeners:
+            return []
+        tellable = [
+            fact for fact in self.known_for(agent_id, limit=self.max_facts)
+            if any(listener not in fact.known_by for listener in listeners)
+        ]
+        return tellable[-limit:]
+
+    def share(self, fact_ids: list[str], agent_ids: list[str]) -> list[FactEvent]:
+        """Mark listeners as knowers; return the facts that actually changed."""
+        changed: list[FactEvent] = []
+        for fact_id in dict.fromkeys(fact_ids):
+            fact = self._facts.get(fact_id)
+            if not fact:
+                continue
+            added = [item for item in agent_ids if item not in fact.known_by]
+            if added:
+                fact.known_by.extend(added)
+                changed.append(fact)
+        return changed
+
     def recent_for(self, agent_id: str, since: int = 0, limit: int = 20) -> list[FactEvent]:
         return self.known_for(agent_id, since, limit)
 

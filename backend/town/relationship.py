@@ -44,6 +44,39 @@ class Relationship:
 class RelationshipStore:
     def __init__(self):
         self.db_path = config.DB_PATH
+        # Decision paths (routine candidates, considerations) ask about rapport
+        # for several pairs per tick, so keep a read-through cache and let
+        # writes keep it current.
+        self._cache: dict[tuple[str, str], Relationship] = {}
+
+    def _remember(self, rel: Relationship) -> None:
+        self._cache[(rel.agent_a, rel.agent_b)] = rel
+
+    def rapport(self, a: str, b: str) -> Relationship:
+        """Cached relationship toward `b`, or a neutral one when unknown."""
+        cached = self._cache.get((a, b))
+        if cached is not None:
+            return cached
+        return Relationship(agent_a=a, agent_b=b)
+
+    async def load_all(self) -> None:
+        """Warm the rapport cache from storage."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT agent_a, agent_b, familiarity, affinity, trust, anchors, tags, "
+                "interaction_count, last_interaction, last_interaction_id FROM relationships"
+            )
+            for row in await cursor.fetchall():
+                import json
+                self._remember(Relationship(
+                    agent_a=row[0], agent_b=row[1], familiarity=row[2], affinity=row[3],
+                    trust=row[4], anchors=[Anchor(**item) for item in json.loads(row[5] or "[]")],
+                    tags=json.loads(row[6] or "[]"), interaction_count=row[7],
+                    last_interaction=row[8], last_interaction_id=row[9] if len(row) > 9 else "",
+                ))
+
+    def clear_cache(self) -> None:
+        self._cache.clear()
 
     async def init_db(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
@@ -78,7 +111,7 @@ class RelationshipStore:
             row = await cursor.fetchone()
             if row:
                 import json
-                return Relationship(
+                rel = Relationship(
                     agent_a=row[0], agent_b=row[1],
                     familiarity=row[2], affinity=row[3], trust=row[4],
                     anchors=[Anchor(**x) for x in json.loads(row[5])],
@@ -86,7 +119,10 @@ class RelationshipStore:
                     interaction_count=row[7], last_interaction=row[8],
                     last_interaction_id=row[9] if len(row) > 9 else "",
                 )
-            return Relationship(agent_a=a, agent_b=b)
+            else:
+                rel = Relationship(agent_a=a, agent_b=b)
+        self._remember(rel)
+        return rel
 
     async def get_all_for(self, a: str) -> list[Relationship]:
         """Get all relationships from a's perspective."""
@@ -128,6 +164,7 @@ class RelationshipStore:
                  rel.interaction_count, rel.last_interaction, rel.last_interaction_id),
             )
             await db.commit()
+        self._remember(rel)
 
     async def record_interaction(self, a: str, b: str, event: str, valence: float = 0.0,
                                   tag: str | None = None, affinity_delta: float = 0.0,
