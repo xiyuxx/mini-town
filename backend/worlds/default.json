@@ -1,0 +1,1848 @@
+{
+  "id": "default-town",
+  "version": 1,
+  "name": "404小镇",
+  "setting": "一座居民彼此熟悉的现代小镇",
+  "map": {
+    "width": 20,
+    "height": 14,
+    "default_terrain": "road"
+  },
+  "locations": [
+    {
+      "id": "home_wang",
+      "name": "老王家",
+      "type": "home",
+      "x": 0,
+      "y": 0,
+      "width": 3,
+      "height": 2,
+      "color": "#A1887F",
+      "emoji": "🏠",
+      "owner": "wang",
+      "access": {
+        "mode": "owner_only",
+        "allowed_agents": [
+          "wang"
+        ]
+      },
+      "affordances": [
+        "做饭或吃现有食物",
+        "休息",
+        "处理家务",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "home_mei",
+      "name": "小美家",
+      "type": "home",
+      "x": 4,
+      "y": 0,
+      "width": 3,
+      "height": 2,
+      "color": "#A1887F",
+      "emoji": "🏠",
+      "owner": "mei",
+      "access": {
+        "mode": "owner_only",
+        "allowed_agents": [
+          "mei"
+        ]
+      },
+      "affordances": [
+        "做饭或吃现有食物",
+        "休息",
+        "处理家务",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "home_liu",
+      "name": "大刘家",
+      "type": "home",
+      "x": 8,
+      "y": 0,
+      "width": 3,
+      "height": 2,
+      "color": "#A1887F",
+      "emoji": "🏠",
+      "owner": "liu",
+      "access": {
+        "mode": "owner_only",
+        "allowed_agents": [
+          "liu"
+        ]
+      },
+      "affordances": [
+        "做饭或吃现有食物",
+        "休息",
+        "处理家务",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "home_hua",
+      "name": "阿花家",
+      "type": "home",
+      "x": 12,
+      "y": 0,
+      "width": 3,
+      "height": 2,
+      "color": "#A1887F",
+      "emoji": "🏠",
+      "owner": "hua",
+      "access": {
+        "mode": "owner_only",
+        "allowed_agents": [
+          "hua"
+        ]
+      },
+      "affordances": [
+        "做饭或吃现有食物",
+        "休息",
+        "处理家务",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "home_ming",
+      "name": "小明家",
+      "type": "home",
+      "x": 16,
+      "y": 0,
+      "width": 3,
+      "height": 2,
+      "color": "#A1887F",
+      "emoji": "🏠",
+      "owner": "ming",
+      "access": {
+        "mode": "owner_only",
+        "allowed_agents": [
+          "ming"
+        ]
+      },
+      "affordances": [
+        "做饭或吃现有食物",
+        "休息",
+        "处理家务",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "home_li",
+      "name": "李医生家",
+      "type": "home",
+      "x": 0,
+      "y": 5,
+      "width": 3,
+      "height": 2,
+      "color": "#A1887F",
+      "emoji": "🏠",
+      "owner": "li",
+      "access": {
+        "mode": "owner_only",
+        "allowed_agents": [
+          "li"
+        ]
+      },
+      "affordances": [
+        "做饭或吃现有食物",
+        "休息",
+        "处理家务",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "cafe",
+      "name": "阳光咖啡馆",
+      "type": "cafe",
+      "x": 5,
+      "y": 3,
+      "width": 4,
+      "height": 3,
+      "color": "#FF8A65",
+      "emoji": "☕",
+      "owner": null,
+      "access": {
+        "mode": "public"
+      },
+      "affordances": [
+        "点饮品",
+        "点简餐",
+        "工作",
+        "画画",
+        "聊天",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "bookstore",
+      "name": "大刘书店",
+      "type": "shop",
+      "x": 10,
+      "y": 3,
+      "width": 4,
+      "height": 3,
+      "color": "#FFD54F",
+      "emoji": "📚",
+      "owner": null,
+      "access": {
+        "mode": "public"
+      },
+      "affordances": [
+        "经营店铺",
+        "阅读",
+        "整理货物",
+        "短暂休息",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "restaurant",
+      "name": "小镇餐厅",
+      "type": "restaurant",
+      "x": 15,
+      "y": 3,
+      "width": 4,
+      "height": 3,
+      "color": "#EF5350",
+      "emoji": "🍽️",
+      "owner": null,
+      "access": {
+        "mode": "public"
+      },
+      "affordances": [
+        "点餐",
+        "吃饭",
+        "聊天",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "clinic",
+      "name": "社区诊所",
+      "type": "clinic",
+      "x": 3,
+      "y": 7,
+      "width": 3,
+      "height": 2,
+      "color": "#81C784",
+      "emoji": "🏥",
+      "owner": null,
+      "access": {
+        "mode": "public"
+      },
+      "affordances": [
+        "工作",
+        "候诊",
+        "简单补充食物",
+        "休息",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "park",
+      "name": "中央公园",
+      "type": "park",
+      "x": 8,
+      "y": 7,
+      "width": 7,
+      "height": 4,
+      "color": "#4CAF50",
+      "emoji": "🌳",
+      "owner": null,
+      "access": {
+        "mode": "public"
+      },
+      "affordances": [
+        "散步",
+        "运动",
+        "观察自然",
+        "聊天"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "school",
+      "name": "镇中学",
+      "type": "school",
+      "x": 16,
+      "y": 7,
+      "width": 3,
+      "height": 3,
+      "color": "#42A5F5",
+      "emoji": "🏫",
+      "owner": null,
+      "access": {
+        "mode": "public"
+      },
+      "affordances": [
+        "上课",
+        "学习",
+        "在食堂或教室吃东西",
+        "休息",
+        "避雨"
+      ],
+      "pass_through": false
+    },
+    {
+      "id": "fresh_market",
+      "name": "生鲜市场",
+      "type": "market",
+      "x": 0,
+      "y": 3,
+      "width": 4,
+      "height": 2,
+      "color": "#76A95A",
+      "emoji": "🥬",
+      "owner": null,
+      "access": {"mode": "public"},
+      "affordances": ["购买食材", "采购日用品", "短暂交流", "避雨"],
+      "pass_through": false
+    },
+    {
+      "id": "bus_stop",
+      "name": "公交站",
+      "type": "transit",
+      "x": 4,
+      "y": 9,
+      "width": 3,
+      "height": 1,
+      "color": "#607D8B",
+      "emoji": "🚌",
+      "owner": null,
+      "access": {"mode": "public"},
+      "affordances": ["等候公交", "换乘", "查看站牌"],
+      "pass_through": true
+    },
+    {
+      "id": "community_center",
+      "name": "社区活动中心",
+      "type": "community",
+      "x": 0,
+      "y": 10,
+      "width": 4,
+      "height": 3,
+      "color": "#9B7EDE",
+      "emoji": "🏛️",
+      "owner": null,
+      "access": {"mode": "public"},
+      "affordances": ["参加活动", "查看公告", "室内休息", "邻里交流"],
+      "pass_through": false
+    },
+    {
+      "id": "pharmacy",
+      "name": "社区药房",
+      "type": "pharmacy",
+      "x": 15,
+      "y": 10,
+      "width": 4,
+      "height": 2,
+      "color": "#D96F96",
+      "emoji": "💊",
+      "owner": null,
+      "access": {"mode": "public"},
+      "affordances": ["购买药品", "咨询用药", "购买护理用品", "避雨"],
+      "pass_through": false
+    },
+    {
+      "id": "road_main",
+      "name": "主街",
+      "type": "road",
+      "x": 0,
+      "y": 2,
+      "width": 20,
+      "height": 1,
+      "color": "#BDBDBD",
+      "emoji": "🛣️",
+      "owner": null,
+      "access": {
+        "mode": "public"
+      },
+      "affordances": [
+        "步行",
+        "短暂停留"
+      ],
+      "pass_through": true
+    }
+  ],
+  "agents": [
+    {
+      "id": "wang",
+      "name": "老王",
+      "age": 62,
+      "occupation": "退休工人",
+      "personality": "和蔼可亲，喜欢和人聊天，有点怀旧",
+      "background": "在镇上工厂工作了40年，三年前退休。每天在公园下棋、散步，是小镇的'活历史'。",
+      "x": 1,
+      "y": 1,
+      "location": "home_wang",
+      "emoji": "♟️",
+      "initial_needs": {"energy": 78, "hunger": 18, "social": 58},
+      "schedule": [
+        [
+          6,
+          0,
+          "起床洗漱",
+          "home_wang"
+        ],
+        [
+          6,
+          30,
+          "晨练打太极",
+          "park"
+        ],
+        {
+          "hour": 7,
+          "minute": 30,
+          "label": "在家吃早餐",
+          "location": "home_wang",
+          "kind": "meal",
+          "activity": "吃早餐",
+          "interaction_type": "consume",
+          "expected_duration": 25,
+          "flexibility": 0.3,
+          "responsibility": 0.6
+        },
+        [
+          8,
+          30,
+          "去公园下棋",
+          "park"
+        ],
+        [
+          11,
+          30,
+          "去生鲜市场买菜",
+          "fresh_market"
+        ],
+        {
+          "hour": 12,
+          "minute": 0,
+          "label": "在家吃午饭",
+          "location": "home_wang",
+          "kind": "meal",
+          "activity": "吃午饭",
+          "interaction_type": "consume",
+          "expected_duration": 30,
+          "flexibility": 0.3,
+          "responsibility": 0.6
+        },
+        [
+          13,
+          0,
+          "午休",
+          "home_wang"
+        ],
+        [
+          15,
+          0,
+          "下午散步",
+          "park"
+        ],
+        [
+          17,
+          0,
+          "看报纸",
+          "home_wang"
+        ],
+        [
+          18,
+          0,
+          "做晚饭",
+          "home_wang"
+        ],
+        [
+          19,
+          0,
+          "看电视",
+          "home_wang"
+        ],
+        [
+          21,
+          0,
+          "准备睡觉",
+          "home_wang"
+        ]
+      ]
+    },
+    {
+      "id": "mei",
+      "name": "小美",
+      "age": 24,
+      "occupation": "咖啡馆店员",
+      "personality": "开朗活泼，热心肠，喜欢交朋友",
+      "background": "大学毕业后回到小镇，在阳光咖啡馆工作。梦想是以后开一家自己的花店。",
+      "x": 5,
+      "y": 1,
+      "location": "home_mei",
+      "emoji": "☕",
+      "initial_needs": {"energy": 70, "hunger": 24, "social": 64},
+      "schedule": [
+        [
+          6,
+          30,
+          "起床准备",
+          "home_mei"
+        ],
+        [
+          7,
+          30,
+          "去咖啡馆开门",
+          "cafe"
+        ],
+        [
+          8,
+          0,
+          "开始工作",
+          "cafe"
+        ],
+        {
+          "hour": 12,
+          "minute": 0,
+          "label": "在咖啡馆用午餐",
+          "location": "cafe",
+          "kind": "meal",
+          "activity": "吃午饭",
+          "interaction_type": "consume",
+          "expected_duration": 30,
+          "flexibility": 0.25,
+          "responsibility": 0.6
+        },
+        [
+          13,
+          0,
+          "下午工作",
+          "cafe"
+        ],
+        [
+          17,
+          0,
+          "下班",
+          "cafe"
+        ],
+        [
+          17,
+          30,
+          "去书店逛逛",
+          "bookstore"
+        ],
+        [
+          18,
+          30,
+          "晚餐",
+          "restaurant"
+        ],
+        [
+          19,
+          30,
+          "公园散步",
+          "park"
+        ],
+        [
+          21,
+          0,
+          "回家",
+          "home_mei"
+        ],
+        [
+          22,
+          0,
+          "睡觉",
+          "home_mei"
+        ]
+      ]
+    },
+    {
+      "id": "liu",
+      "name": "大刘",
+      "age": 37,
+      "occupation": "书店老板",
+      "personality": "安静内敛，博学多识，偶尔幽默",
+      "background": "五年前从大城市辞职，回到小镇开了这家书店。喜欢读书和收藏旧书。",
+      "x": 9,
+      "y": 1,
+      "location": "home_liu",
+      "emoji": "📖",
+      "initial_needs": {"energy": 74, "hunger": 21, "social": 48},
+      "schedule": [
+        [
+          7,
+          0,
+          "起床",
+          "home_liu"
+        ],
+        [
+          8,
+          0,
+          "开店",
+          "bookstore"
+        ],
+        [
+          9,
+          0,
+          "整理书架",
+          "bookstore"
+        ],
+        {
+          "hour": 12,
+          "minute": 0,
+          "label": "午餐",
+          "location": "restaurant",
+          "kind": "meal",
+          "activity": "吃午饭",
+          "interaction_type": "consume",
+          "expected_duration": 30,
+          "flexibility": 0.25,
+          "responsibility": 0.6
+        },
+        [
+          13,
+          30,
+          "看书",
+          "bookstore"
+        ],
+        [
+          17,
+          0,
+          "关门",
+          "bookstore"
+        ],
+        [
+          17,
+          30,
+          "咖啡馆喝咖啡",
+          "cafe"
+        ],
+        [
+          18,
+          30,
+          "晚餐",
+          "restaurant"
+        ],
+        [
+          20,
+          0,
+          "在家看书",
+          "home_liu"
+        ],
+        [
+          22,
+          30,
+          "睡觉",
+          "home_liu"
+        ]
+      ]
+    },
+    {
+      "id": "hua",
+      "name": "阿花",
+      "age": 27,
+      "occupation": "自由插画师",
+      "personality": "感性细腻，有点社恐但对熟人很热情",
+      "background": "自由职业插画师，喜欢在咖啡馆和公园寻找灵感。养了一只猫叫'豆豆'。",
+      "x": 13,
+      "y": 1,
+      "location": "home_hua",
+      "emoji": "🎨",
+      "initial_needs": {"energy": 68, "hunger": 27, "social": 42},
+      "schedule": [
+        [
+          7,
+          30,
+          "起床",
+          "home_hua"
+        ],
+        [
+          8,
+          30,
+          "去咖啡馆工作",
+          "cafe"
+        ],
+        {
+          "hour": 12,
+          "minute": 30,
+          "label": "午餐",
+          "location": "restaurant",
+          "kind": "meal",
+          "activity": "吃午饭",
+          "interaction_type": "consume",
+          "expected_duration": 25,
+          "flexibility": 0.35,
+          "responsibility": 0.55
+        },
+        [
+          13,
+          0,
+          "公园散步找灵感",
+          "park"
+        ],
+        [
+          14,
+          0,
+          "回家画画",
+          "home_hua"
+        ],
+        [
+          17,
+          0,
+          "去书店",
+          "bookstore"
+        ],
+        [
+          18,
+          30,
+          "晚餐",
+          "restaurant"
+        ],
+        [
+          19,
+          30,
+          "咖啡馆",
+          "cafe"
+        ],
+        [
+          21,
+          0,
+          "回家休息",
+          "home_hua"
+        ],
+        [
+          23,
+          0,
+          "睡觉",
+          "home_hua"
+        ]
+      ]
+    },
+    {
+      "id": "ming",
+      "name": "小明",
+      "age": 16,
+      "occupation": "高中生",
+      "personality": "活泼好动，有点叛逆，喜欢打篮球",
+      "background": "高二学生，成绩中等，热爱篮球。放学后喜欢和朋友在公园打球。",
+      "x": 17,
+      "y": 1,
+      "location": "home_ming",
+      "emoji": "🏀",
+      "initial_needs": {"energy": 82, "hunger": 23, "social": 60},
+      "schedule": [
+        [
+          6,
+          30,
+          "起床准备上学",
+          "home_ming"
+        ],
+        [
+          7,
+          30,
+          "去学校",
+          "school"
+        ],
+        [
+          8,
+          0,
+          "上课",
+          "school"
+        ],
+        {
+          "hour": 12,
+          "minute": 0,
+          "label": "在学校用午餐",
+          "location": "school",
+          "kind": "meal",
+          "activity": "吃午饭",
+          "interaction_type": "consume",
+          "expected_duration": 30,
+          "flexibility": 0.2,
+          "responsibility": 0.65
+        },
+        [
+          13,
+          30,
+          "下午课",
+          "school"
+        ],
+        [
+          16,
+          30,
+          "放学",
+          "school"
+        ],
+        [
+          17,
+          0,
+          "公园打篮球",
+          "park"
+        ],
+        [
+          18,
+          30,
+          "回家吃饭",
+          "home_ming"
+        ],
+        [
+          19,
+          30,
+          "写作业",
+          "home_ming"
+        ],
+        [
+          21,
+          0,
+          "玩手机",
+          "home_ming"
+        ],
+        [
+          22,
+          0,
+          "睡觉",
+          "home_ming"
+        ]
+      ]
+    },
+    {
+      "id": "li",
+      "name": "李医生",
+      "age": 44,
+      "occupation": "社区医生",
+      "personality": "沉稳可靠，细心周到，话不多但每句都在点子上",
+      "background": "社区诊所的全科医生，在镇上工作15年，几乎认识每个居民。",
+      "x": 1,
+      "y": 5,
+      "location": "home_li",
+      "emoji": "🩺",
+      "initial_needs": {"energy": 76, "hunger": 20, "social": 45},
+      "schedule": [
+        [
+          6,
+          30,
+          "起床晨跑",
+          "park"
+        ],
+        [
+          7,
+          30,
+          "回家早餐",
+          "home_li"
+        ],
+        [
+          8,
+          30,
+          "去诊所上班",
+          "clinic"
+        ],
+        {
+          "hour": 12,
+          "minute": 15,
+          "label": "在诊所简单午餐",
+          "location": "clinic",
+          "kind": "meal",
+          "activity": "吃午饭",
+          "interaction_type": "consume",
+          "expected_duration": 25,
+          "flexibility": 0.2,
+          "responsibility": 0.65
+        },
+        [
+          13,
+          30,
+          "下午门诊",
+          "clinic"
+        ],
+        [
+          17,
+          30,
+          "下班",
+          "clinic"
+        ],
+        [
+          18,
+          0,
+          "公园散步",
+          "park"
+        ],
+        [
+          19,
+          0,
+          "晚餐",
+          "restaurant"
+        ],
+        [
+          20,
+          0,
+          "在家看书",
+          "home_li"
+        ],
+        [
+          22,
+          0,
+          "睡觉",
+          "home_li"
+        ]
+      ]
+    }
+  ],
+  "routine_blocks": {
+    "wang": [
+      {"id": "wang_morning", "window": ["06:30", "11:30"], "intent": "晨练、买菜和处理退休后的日常", "candidate_locations": ["park", "fresh_market", "home_wang"], "candidate_activities": ["晨练", "下棋", "买菜"], "priority": 0.45, "flexibility": 0.75},
+      {"id": "wang_afternoon", "window": ["13:00", "18:00"], "intent": "休息、散步或在家看报", "candidate_locations": ["park", "home_wang", "community_center"], "candidate_activities": ["午休", "散步", "看报"], "priority": 0.3, "flexibility": 0.9}
+    ],
+    "mei": [
+      {"id": "mei_evening", "window": ["17:00", "21:00"], "intent": "下班后的个人时间", "candidate_locations": ["bookstore", "park", "restaurant", "home_mei", "cafe"], "candidate_activities": ["逛书店", "散步", "吃晚餐", "和熟人聊天", "回家休息"], "priority": 0.35, "flexibility": 0.85}
+    ],
+    "liu": [
+      {"id": "liu_evening", "window": ["17:00", "21:30"], "intent": "关店后的阅读、用餐或社交", "candidate_locations": ["cafe", "restaurant", "home_liu", "bookstore"], "candidate_activities": ["喝咖啡", "吃晚餐", "在家看书", "整理书店"], "priority": 0.35, "flexibility": 0.8}
+    ],
+    "hua": [
+      {"id": "hua_afternoon", "window": ["13:00", "18:00"], "intent": "寻找灵感并完成插画工作", "candidate_locations": ["park", "home_hua", "bookstore", "cafe"], "candidate_activities": ["散步找灵感", "画画", "看书", "喝咖啡"], "priority": 0.5, "flexibility": 0.85},
+      {"id": "hua_evening", "window": ["18:00", "21:30"], "intent": "晚间放松或继续创作", "candidate_locations": ["restaurant", "cafe", "home_hua", "bookstore"], "candidate_activities": ["吃晚餐", "和熟人聊天", "画画", "看书"], "priority": 0.35, "flexibility": 0.85}
+    ],
+    "ming": [
+      {"id": "ming_after_school", "window": ["16:30", "19:00"], "intent": "放学后的运动或和朋友相处", "candidate_locations": ["park", "community_center", "home_ming"], "candidate_activities": ["打篮球", "和朋友聊天", "回家"], "priority": 0.45, "flexibility": 0.8}
+    ],
+    "li": [
+      {"id": "li_evening", "window": ["17:30", "21:30"], "intent": "下班后的散步、用餐和休息", "candidate_locations": ["park", "restaurant", "home_li", "community_center"], "candidate_activities": ["散步", "吃晚餐", "看书", "参加邻里活动"], "priority": 0.4, "flexibility": 0.75}
+    ]
+  },
+  "resources": [
+    {
+      "id": "food_home_wang",
+      "kind": "food",
+      "location": "home_wang",
+      "quantity": 4,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "food_home_mei",
+      "kind": "food",
+      "location": "home_mei",
+      "quantity": 4,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "food_home_liu",
+      "kind": "food",
+      "location": "home_liu",
+      "quantity": 4,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "food_home_hua",
+      "kind": "food",
+      "location": "home_hua",
+      "quantity": 4,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "food_home_ming",
+      "kind": "food",
+      "location": "home_ming",
+      "quantity": 4,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "food_home_li",
+      "kind": "food",
+      "location": "home_li",
+      "quantity": 4,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "food_cafe",
+      "kind": "food",
+      "location": "cafe",
+      "quantity": 12,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5,
+        "service_facility_id": "cafe_service_facility"
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "food_restaurant",
+      "kind": "food",
+      "location": "restaurant",
+      "quantity": 30,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "food_clinic",
+      "kind": "food",
+      "location": "clinic",
+      "quantity": 3,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "food_school",
+      "kind": "food",
+      "location": "school",
+      "quantity": 10,
+      "properties": {
+        "nutrition": 45,
+        "energy": 5
+      },
+      "name": "可食用食物",
+      "portable": true
+    },
+    {
+      "id": "ingredient_restaurant",
+      "name": "基础食材",
+      "kind": "ingredient",
+      "location": "restaurant",
+      "quantity": 12,
+      "portable": true,
+      "properties": {
+        "quality": "standard"
+      }
+    },
+    {
+      "id": "food_fresh_market",
+      "name": "即食食品",
+      "kind": "food",
+      "location": "fresh_market",
+      "quantity": 24,
+      "portable": true,
+      "properties": {
+        "nutrition": 40,
+        "energy": 4
+      }
+    },
+    {
+      "id": "ingredient_fresh_market",
+      "name": "新鲜蔬菜和食材",
+      "kind": "ingredient",
+      "location": "fresh_market",
+      "quantity": 36,
+      "portable": true,
+      "properties": {
+        "quality": "fresh"
+      }
+    },
+    {
+      "id": "medical_supply_pharmacy",
+      "name": "常用药品",
+      "kind": "medical_supply",
+      "location": "pharmacy",
+      "quantity": 20,
+      "portable": true,
+      "properties": {
+        "category": "common_care"
+      }
+    }
+  ],
+  "zones": [
+    {
+      "id": "archive_public_zone",
+      "location": "bookstore",
+      "name": "顾客区",
+      "tags": ["public", "service"],
+      "capacity": 6
+    },
+    {
+      "id": "archive_storage_zone",
+      "location": "bookstore",
+      "name": "储存区",
+      "tags": ["storage", "staff"],
+      "capacity": 2
+    },
+    {
+      "id": "meal_prep_zone",
+      "location": "restaurant",
+      "name": "加工区",
+      "tags": ["production", "staff"],
+      "capacity": 2
+    },
+    {
+      "id": "meal_service_zone",
+      "location": "restaurant",
+      "name": "服务区",
+      "tags": ["public", "service"],
+      "capacity": 8
+    }
+  ],
+  "anchors": [
+    {
+      "id": "cafe_service_anchor",
+      "location": "cafe",
+      "name": "咖啡吧台",
+      "x": 6,
+      "y": 4,
+      "capabilities": ["service", "food_supply"],
+      "capacity": 2
+    },
+    {
+      "id": "archive_service_anchor",
+      "location": "bookstore",
+      "zone": "archive_public_zone",
+      "name": "服务台",
+      "x": 11,
+      "y": 4,
+      "capabilities": ["service", "exchange", "inventory_review"],
+      "capacity": 1
+    },
+    {
+      "id": "archive_storage_anchor",
+      "location": "bookstore",
+      "zone": "archive_storage_zone",
+      "name": "后仓货架",
+      "x": 13,
+      "y": 5,
+      "capabilities": ["store", "retrieve", "stock"],
+      "capacity": 1
+    },
+    {
+      "id": "meal_prep_anchor",
+      "location": "restaurant",
+      "zone": "meal_prep_zone",
+      "name": "加工台",
+      "x": 16,
+      "y": 4,
+      "capabilities": ["prepare", "process"],
+      "capacity": 1
+    },
+    {
+      "id": "meal_service_anchor",
+      "location": "restaurant",
+      "zone": "meal_service_zone",
+      "name": "服务台",
+      "x": 18,
+      "y": 4,
+      "capabilities": ["service", "exchange"],
+      "capacity": 1
+    },
+    {
+      "id": "outside_route_anchor",
+      "location": "road_main",
+      "name": "镇外通路",
+      "x": 0,
+      "y": 2,
+      "capabilities": ["receive", "dispatch", "external_transfer"],
+      "capacity": 2
+    },
+    {
+      "id": "market_counter_anchor",
+      "location": "fresh_market",
+      "name": "生鲜摊位",
+      "x": 1,
+      "y": 3,
+      "capabilities": ["service", "exchange", "food_supply"],
+      "capacity": 2
+    },
+    {
+      "id": "bus_stop_anchor",
+      "location": "bus_stop",
+      "name": "候车站台",
+      "x": 5,
+      "y": 9,
+      "capabilities": ["wait", "transport", "external_transfer"],
+      "capacity": 6
+    },
+    {
+      "id": "community_board_anchor",
+      "location": "community_center",
+      "name": "社区公告栏",
+      "x": 1,
+      "y": 11,
+      "capabilities": ["notice", "meeting", "activity"],
+      "capacity": 8
+    },
+    {
+      "id": "pharmacy_counter_anchor",
+      "location": "pharmacy",
+      "name": "药房柜台",
+      "x": 16,
+      "y": 10,
+      "capabilities": ["service", "medical_supply", "consultation"],
+      "capacity": 2
+    }
+  ],
+  "containers": [
+    {
+      "id": "archive_storage",
+      "location": "bookstore",
+      "zone": "archive_storage_zone",
+      "anchor": "archive_storage_anchor",
+      "name": "后仓存储",
+      "capacity": 80,
+      "accepts_kinds": ["knowledge_item", "paper", "package"],
+      "access": {"mode": "staff"}
+    },
+    {
+      "id": "meal_ingredients_storage",
+      "location": "restaurant",
+      "zone": "meal_prep_zone",
+      "anchor": "meal_prep_anchor",
+      "name": "食材储存",
+      "capacity": 40,
+      "accepts_kinds": ["ingredient", "food", "package"],
+      "access": {"mode": "staff"}
+    }
+  ],
+  "routes": [
+    {
+      "id": "outside_supply_route",
+      "name": "镇外供给通路",
+      "type": "external",
+      "endpoint_anchor_id": "outside_route_anchor",
+      "supported_resource_kinds": ["package", "ingredient", "knowledge_item", "component"],
+      "travel_minutes": {"min": 60, "max": 180}
+    }
+  ],
+  "orders": [
+    {
+      "id": "meal_ingredient_restock_day1",
+      "resource_kind": "package",
+      "quantity": 4,
+      "destination_location": "restaurant",
+      "destination_container_id": "meal_ingredients_storage",
+      "route_id": "outside_supply_route",
+      "requester_id": "mei",
+      "carrier_id": "mei",
+      "priority": 0.85,
+      "requested_at": 360
+    }
+  ],
+  "duties": [
+    {
+      "agent_id": "liu",
+      "facility_id": "archive_service_facility",
+      "capabilities": ["inventory_review", "exchange", "external_order", "stock"],
+      "schedule_template": "day_shift"
+    },
+    {
+      "agent_id": "mei",
+      "facility_id": "cafe_service_facility",
+      "capabilities": ["service", "food_supply"],
+      "schedule_template": "day_shift"
+    }
+  ],
+  "weather": {
+    "initial": "晴",
+    "states": {
+      "晴": {
+        "transitions": {
+          "多云": 0.6,
+          "阴": 0.2,
+          "小雨": 0.1,
+          "晴": 0.1
+        },
+        "temperature_modifier": [
+          3,
+          8
+        ],
+        "description": "晴朗，阳光明媚",
+        "winds": [
+          "无风",
+          "微风",
+          "微风",
+          "和风"
+        ],
+        "travel_cost": 0.0,
+        "sensory_salience": 0.1
+      },
+      "多云": {
+        "transitions": {
+          "晴": 0.3,
+          "阴": 0.4,
+          "小雨": 0.3
+        },
+        "temperature_modifier": [
+          0,
+          5
+        ],
+        "description": "多云，云层较厚",
+        "winds": [
+          "微风",
+          "和风",
+          "和风",
+          "大风"
+        ],
+        "travel_cost": 0.0,
+        "sensory_salience": 0.1
+      },
+      "阴": {
+        "transitions": {
+          "多云": 0.3,
+          "小雨": 0.5,
+          "大雨": 0.1,
+          "阴": 0.1
+        },
+        "temperature_modifier": [
+          -2,
+          3
+        ],
+        "description": "阴天，天空灰蒙蒙的",
+        "winds": [
+          "微风",
+          "和风",
+          "大风",
+          "大风"
+        ],
+        "travel_cost": 0.0,
+        "sensory_salience": 0.1
+      },
+      "小雨": {
+        "transitions": {
+          "阴": 0.4,
+          "大雨": 0.2,
+          "多云": 0.2,
+          "小雨": 0.2
+        },
+        "temperature_modifier": [
+          -5,
+          0
+        ],
+        "description": "下着小雨",
+        "winds": [
+          "微风",
+          "和风",
+          "大风",
+          "大风"
+        ],
+        "travel_cost": 0.35,
+        "sensory_salience": 0.35
+      },
+      "大雨": {
+        "transitions": {
+          "小雨": 0.4,
+          "阴": 0.3,
+          "暴雨": 0.1,
+          "大雨": 0.2
+        },
+        "temperature_modifier": [
+          -8,
+          -3
+        ],
+        "description": "大雨滂沱",
+        "winds": [
+          "和风",
+          "大风",
+          "大风",
+          "狂风"
+        ],
+        "travel_cost": 0.7,
+        "sensory_salience": 0.7
+      },
+      "暴雨": {
+        "transitions": {
+          "大雨": 0.5,
+          "小雨": 0.3,
+          "暴雨": 0.2
+        },
+        "temperature_modifier": [
+          -12,
+          -5
+        ],
+        "description": "暴雨如注，狂风大作",
+        "winds": [
+          "大风",
+          "狂风",
+          "狂风",
+          "狂风"
+        ],
+        "travel_cost": 1.0,
+        "sensory_salience": 0.9
+      }
+    },
+    "seasons": [
+      "summer",
+      "autumn",
+      "winter",
+      "spring"
+    ],
+    "season_length_days": 30,
+    "season_base_temperature": {
+      "spring": 15,
+      "summer": 25,
+      "autumn": 18,
+      "winter": 5
+    }
+  },
+  "festivals": [
+    {
+      "id": "market-day",
+      "name": "市集日",
+      "repeat_every_days": 7,
+      "description": "市集日——商店热闹非凡，摊位摆满了主街",
+      "location": "road_main"
+    },
+    {
+      "id": "mid-autumn",
+      "name": "中秋节",
+      "day": 15,
+      "description": "中秋节——全镇聚餐，月饼和桂花酒备好了",
+      "location": "road_main"
+    },
+    {
+      "id": "spring-festival",
+      "name": "春节",
+      "day": 90,
+      "description": "春节——张灯结彩，放鞭炮，拜年串门",
+      "location": "road_main"
+    }
+  ],
+  "random_events": [
+    {
+      "type": "lost_item",
+      "template": "{location}门口有人遗落了一个钱包"
+    },
+    {
+      "type": "weather_gust",
+      "template": "一阵突如其来的大风"
+    },
+    {
+      "type": "performance",
+      "template": "有人在{location}演奏吉他"
+    },
+    {
+      "type": "seasonal_change",
+      "template": "{location}的花开了，很好看"
+    }
+  ],
+  "fallback_dialogue": [
+    "是啊，挺好的。",
+    "还不错，你呢？",
+    "嗯，我明白。",
+    "确实如此。"
+  ],
+  "infrastructure": {
+    "services": {
+      "power": {
+        "normal": "normal",
+        "failed": "outage"
+      },
+      "water": {
+        "normal": "normal",
+        "failed": "outage"
+      },
+      "road_main": {
+        "normal": "open",
+        "failed": "closed"
+      }
+    },
+    "failure_duration_ticks": [
+      1,
+      4
+    ]
+  },
+  "simulation": {
+    "random_event_probability": 0.05,
+    "need_deltas_per_tick": {
+      "hunger": 0.45,
+      "social": -0.25,
+      "energy_when_not_acting": -1.0
+    }
+  },
+  "entities": [
+    {
+      "id": "rest_space_home_wang",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "home_wang",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.8
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_home_mei",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "home_mei",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.8
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_home_liu",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "home_liu",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.8
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_home_hua",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "home_hua",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.8
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_home_ming",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "home_ming",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.8
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_home_li",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "home_li",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.8
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_cafe",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "cafe",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.35
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_bookstore",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "bookstore",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.35
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_restaurant",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "restaurant",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.35
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_clinic",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "clinic",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.35
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_park",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "park",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.35
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_school",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "school",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.35
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "rest_space_road_main",
+      "name": "休息空间",
+      "entity_type": "facility",
+      "kind": "rest_space",
+      "location": "road_main",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "rest"
+      ],
+      "components": {
+        "rest_quality": 0.35
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "device_restaurant_cooker",
+      "name": "餐食加工设备",
+      "entity_type": "device",
+      "kind": "processor",
+      "location": "restaurant",
+      "anchor": "meal_prep_anchor",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": [
+        "process:prepare_meal"
+      ],
+      "components": {
+        "power_source": "infrastructure:power"
+      },
+      "state": {
+        "operational": true
+      }
+    },
+    {
+      "id": "cafe_service_facility",
+      "name": "咖啡吧台服务",
+      "entity_type": "facility",
+      "kind": "service_station",
+      "location": "cafe",
+      "anchor": "cafe_service_anchor",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": ["service", "food_supply"],
+      "state": {"operational": true}
+    },
+    {
+      "id": "archive_service_facility",
+      "name": "库存与订购设施",
+      "entity_type": "facility",
+      "kind": "service_station",
+      "location": "bookstore",
+      "anchor": "archive_service_anchor",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": ["inventory_review", "exchange", "external_order", "stock"],
+      "state": {"operational": true}
+    },
+    {
+      "id": "meal_service_facility",
+      "name": "服务设施",
+      "entity_type": "facility",
+      "kind": "service_station",
+      "location": "restaurant",
+      "anchor": "meal_service_anchor",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": ["service", "exchange", "prepare"],
+      "state": {"operational": true}
+    },
+    {
+      "id": "market_service_facility",
+      "name": "市场服务台",
+      "entity_type": "facility",
+      "kind": "service_station",
+      "location": "fresh_market",
+      "anchor": "market_counter_anchor",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": ["service", "exchange", "food_supply"],
+      "state": {"operational": true}
+    },
+    {
+      "id": "community_service_facility",
+      "name": "社区服务台",
+      "entity_type": "facility",
+      "kind": "service_station",
+      "location": "community_center",
+      "anchor": "community_board_anchor",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": ["notice", "meeting", "activity"],
+      "state": {"operational": true}
+    },
+    {
+      "id": "pharmacy_service_facility",
+      "name": "药房服务台",
+      "entity_type": "facility",
+      "kind": "service_station",
+      "location": "pharmacy",
+      "anchor": "pharmacy_counter_anchor",
+      "quantity": 1,
+      "portable": false,
+      "capabilities": ["service", "medical_supply", "consultation"],
+      "state": {"operational": true}
+    }
+  ],
+  "processes": [
+    {
+      "id": "prepare_meal",
+      "name": "加工一份餐食",
+      "required_capability": "process:prepare_meal",
+      "required_anchor_capability": "prepare",
+      "duration_minutes": 20,
+      "state_requirements": {
+        "operational": true
+      },
+      "inputs": [
+        {
+          "kind": "ingredient",
+          "quantity": 1
+        }
+      ],
+      "outputs": [
+        {
+          "resource_id": "food_restaurant",
+          "kind": "food",
+          "name": "加工后的餐食",
+          "quantity": 1,
+          "properties": {
+            "nutrition": 45,
+            "energy": 5
+          }
+        }
+      ]
+    }
+  ]
+}
